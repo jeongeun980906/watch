@@ -7,7 +7,7 @@
 
 This guide goes from an empty machine to the full random-reference (randref) chain: the randref
 mid-training run and its GR1 v6 ICL and Tabletop pv0 post-trains. It uses two repositories:
-`jeongeun980906/EgoVerse-backup` (data download, steps 3-4) and `jeongeun980906/watch-release` (training,
+`jeongeun980906/EgoVerse-backup` (data download, steps 3-4) and `jeongeun980906/watch` (training,
 steps 5-7). Run each command from the root of the repository its step names.
 
 Steps:
@@ -253,8 +253,8 @@ Notes:
 ### 5.1 Code
 
 ```bash
-git clone https://github.com/jeongeun980906/watch-release.git
-cd watch-release
+git clone https://github.com/jeongeun980906/watch.git
+cd watch
 ```
 
 The randref experiment and the `EGOVERSE_HUM_ROOT` override must be in your checkout:

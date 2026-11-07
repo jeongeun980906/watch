@@ -19,7 +19,7 @@ post-training on five settings. The code is built on
 Python 3.10, CUDA 12.8, torch 2.7. Use the Docker image ([SETUP.md](SETUP.md)) or uv directly:
 
 ```bash
-git clone https://github.com/jeongeun980906/watch-release.git && cd watch-release
+git clone https://github.com/jeongeun980906/watch.git && cd watch
 uv sync --extra cu128 --group egoverse --python 3.10
 source .venv/bin/activate
 python -c "import torch, megatron.core, numcodecs; print(torch.__version__, torch.cuda.device_count())"
