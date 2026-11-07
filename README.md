@@ -41,7 +41,8 @@ T5 is not needed. Text embeddings are precomputed in each manifest (`t5_embeddin
 |---|---|---|
 | EgoVerse v10 state/action arrays + pairing manifest (`pairs.npz`, 1,045,007 query windows) | HF `Jeongeun/egoverse-v10-state` | pre-training |
 | EgoVerse episode videos (13,449 human episodes, ~3.9 TB) | EgoVerse R2 bucket, via [`EgoVerse-backup/watch_download`](https://github.com/jeongeun980906/EgoVerse-backup/tree/backup-snapshot/watch_download) | pre-training |
-| MimicDroid GR1 post-training data (v6 manifest + zarr episodes) | HF `Jeongeun/mimicdroid-gr1` | settings 1-3 |
+| MimicDroid GR1 post-training data (v6 manifest + zarr episodes) | HF `Jeongeun/mimicdroid-gr1` | settings 1, 3 |
+| MimicDroid GR1 with 2x-speed references (v6 2x manifest + episodes) | HF `Jeongeun/mimicdroid-gr1-2x` | setting 2 |
 | TableTop-Sim (ALOHA, 5 tasks) | HF `Jeongeun/tabletopsim-watch` | setting 4 |
 | RoboCasa (50 human demos per task, 24 tasks) | HF `nvidia/RoboCasa-Cosmos-Policy` ([ROBOCASA.md](ROBOCASA.md)) | setting 5 |
 | **WATCH pre-trained model** (8K) | HF `Jeongeun/cosmos-policy-egoverse-mid-v10`, `egoverse_ret_v3_448_state_4node/model_000008000.pt` | all post-training |
@@ -52,6 +53,18 @@ checking completeness) are written out step by step in
 [docs/egoverse_randref_from_scratch.md](docs/egoverse_randref_from_scratch.md), steps 1, 3 and 4. For the
 main model, run step 4 with `--pairs pairs.npz`.
 
+The post-training datasets download the same way:
+
+```bash
+for d in mimicdroid-gr1 mimicdroid-gr1-2x tabletopsim-watch; do
+  hf download Jeongeun/$d --repo-type dataset --local-dir $ROOT/$d
+done
+cd $ROOT/mimicdroid-gr1 && mkdir -p egoverse && ls data/*.tar | xargs -P 8 -I{} tar -xf {} -C egoverse
+```
+
+If `mimicdroid-gr1-2x` also ships episode tars, unpack them the same way and point `EGOVERSE_GR1_HUM_ROOT` at
+that `egoverse/` for setting 2.
+
 Paths are passed through environment variables. The defaults are the cluster paths.
 
 | env var | points to |
@@ -59,7 +72,7 @@ Paths are passed through environment variables. The defaults are the cluster pat
 | `EGOVERSE_V10_MANIFEST` | `<egoverse-v10-state>/manifest` |
 | `EGOVERSE_HUM_ROOT` | the assembled EgoVerse episode root (video + `state57`/`action57` per episode) |
 | `EGOVERSE_GR1_V6_MANIFEST`, `EGOVERSE_GR1_HUM_ROOT` | `<mimicdroid-gr1>/manifest`, `<mimicdroid-gr1>/egoverse` (unpacked tars) |
-| `EGOVERSE_GR1_V6_2X_MANIFEST` | the GR1 v6 manifest with 2x-speed references (setting 2) |
+| `EGOVERSE_GR1_V6_2X_MANIFEST` | `<mimicdroid-gr1-2x>/manifest` (setting 2) |
 | `TABLETOP_ROOT` | TableTop-Sim root: episodes, with the manifest at `$TABLETOP_ROOT/manifest` |
 | `BASE_DATASETS_DIR` | the directory that holds `RoboCasa-Cosmos-Policy/` |
 | `GR1_BASE_CKPT`, `TABLETOP_BASE_CKPT` | warm-start `.pt` for the GR1 and TableTop-Sim post-training configs |
@@ -116,7 +129,7 @@ terms of the original Cosmos Policy recipe.
 | # | setting (paper) | experiment | data | nodes x GPUs x batch | iterations |
 |---|---|---|---|---|---|
 | 1 | MimicDroid, in-context (GR1) | `cosmos_predict2p5_2b_egoverse_gr1_ret_v6_448_state` | GR1 v6 | 3 x 8 x 4 (96) | 8K |
-| 2 | MimicDroid, in-context, 2x-speed references | `cosmos_predict2p5_2b_egoverse_gr1_ret_v6_2x_448_state` | GR1 v6, 2x manifest | 3 x 8 x 4 (96) | 8K |
+| 2 | MimicDroid, in-context, 2x-speed references | `cosmos_predict2p5_2b_egoverse_gr1_ret_v6_2x_448_state` | GR1 v6 2x | 3 x 8 x 4 (96) | 8K |
 | 3 | MimicDroid, context-free | `cosmos_predict2p5_2b_egoverse_gr1_plain_state_v6` | GR1 v6 | 3 x 8 x 4 (96) | 8K |
 | 4 | TableTop-Sim, context-free (ALOHA) | `cosmos_predict2p5_2b_tabletop_sim_5task_plain_end_a20_pv0` | TableTop-Sim | 3 x 8 x 16 (384) | 8K |
 | 5 | RoboCasa Kitchen-H50, context-free (Franka) | `cosmos_predict2p5_2b_480p_robocasa_all_24_tasks_t5_bridge_b2` | RoboCasa | 3 x 8 x 25 | 20K read (50K schedule) |
@@ -140,7 +153,7 @@ COMMON="--nnodes=3 --nproc_per_node=8 --node_rank=$NODE_RANK --master_addr=$MAST
 
 # 1-3: MimicDroid GR1
 export EGOVERSE_GR1_V6_MANIFEST=$ROOT/mimicdroid-gr1/manifest EGOVERSE_GR1_HUM_ROOT=$ROOT/mimicdroid-gr1/egoverse
-export EGOVERSE_GR1_V6_2X_MANIFEST=<GR1 v6 2x manifest>      # setting 2 only
+export EGOVERSE_GR1_V6_2X_MANIFEST=$ROOT/mimicdroid-gr1-2x/manifest   # setting 2 only
 export GR1_BASE_CKPT=$WATCH_MID
 python -m torch.distributed.run $COMMON experiment=cosmos_predict2p5_2b_egoverse_gr1_ret_v6_448_state
 #   ... experiment=cosmos_predict2p5_2b_egoverse_gr1_ret_v6_2x_448_state
