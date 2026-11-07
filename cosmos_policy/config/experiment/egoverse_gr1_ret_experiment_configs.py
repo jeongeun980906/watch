@@ -571,8 +571,11 @@ _GR1_V6_448_STATE_DATASET = L(EgoVerseGr1RetV2StateDataset)(
     num_duplicates_per_image=4, use_residual_actions=False, retrieval_dropout_prob=0.0,
 )
 
-_CKV6_448_STATE = ("${oc.env:GR1_BASE_CKPT,/mnt/ddn/tmp/egoverse_ret_v3_448_state_clean_3node/cosmos_policy/"
-                   "cosmos_v2_finetune/cosmos_predict2p5_2b_egoverse_ret_v3_448_state_clean/checkpoints/model_000008000.pt}")
+# Warm start = the WATCH pre-trained model (v10 state mid, ..._ret_v3_448_state @ 8K; HF
+# Jeongeun/cosmos-policy-egoverse-mid-v10, egoverse_ret_v3_448_state_4node/model_000008000.pt).
+# GR1_BASE_CKPT overrides it (e.g. the within-video baseline or a rebuttal mid).
+_CKV6_448_STATE = ("${oc.env:GR1_BASE_CKPT,/mnt/ddn/tmp/egoverse_ret_v3_448_state_4node/cosmos_policy/"
+                   "cosmos_v2_finetune/cosmos_predict2p5_2b_egoverse_ret_v3_448_state/checkpoints/model_000008000.pt}")
 
 cosmos_predict2p5_2b_egoverse_gr1_ret_v6_448_state = LazyDict(
     dict(
