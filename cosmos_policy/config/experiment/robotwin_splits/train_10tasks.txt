@@ -1,0 +1,14 @@
+# 10-task training split. Extends train_5tasks.txt with five additional tasks
+# that were previously held out as "unseen" — folded back in for the UR5
+# pipeline only (ARX variants stay on the 5-task split).
+
+place_cans_plasticbox
+move_can_pot
+open_microwave
+grab_roller
+pick_dual_bottles
+place_can_basket
+lift_pot
+click_bell
+handover_mic
+adjust_bottle

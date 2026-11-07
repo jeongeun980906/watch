@@ -1,0 +1,8 @@
+# 5-task training split. Mirrors the RAG_5TASKS tuple in
+# robotwin_experiment_configs.py so RAG and non-RAG runs cover the same tasks.
+
+place_cans_plasticbox
+move_can_pot
+open_microwave
+grab_roller
+pick_dual_bottles

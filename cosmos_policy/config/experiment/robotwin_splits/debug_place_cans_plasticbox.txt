@@ -1,0 +1,2 @@
+# Single-task debug split — smallest viable training run for pipeline checks.
+place_cans_plasticbox

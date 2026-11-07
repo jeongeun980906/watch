@@ -1,0 +1,14 @@
+# Pipeline-validation training split (3 tasks).
+
+# place_container_plate 
+# lift_pot
+# place_bread_skillet
+# handover_mic
+# adjust_bottle
+# open_mircrowave
+
+place_cans_plasticbox
+move_can_pot
+open_laptop
+grab_roller
+pick_dual_bottles

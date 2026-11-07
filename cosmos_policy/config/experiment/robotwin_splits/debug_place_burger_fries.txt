@@ -1,0 +1,3 @@
+# Single-task debug split for place_burger_fries — used by both qpos and EE
+# baseline / RAG configs as the canonical task list pointer.
+place_burger_fries
