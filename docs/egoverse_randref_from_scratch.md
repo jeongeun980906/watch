@@ -175,13 +175,26 @@ Unresolved scale episodes mean the DB hash changed again.
 ```bash
 export VIDEO=$ROOT/egoverse-video
 PATH=~/bin:$PATH nohup venv/bin/python watch_download/fetch_raw.py --list watch_download/all_episodes.csv \
-    --full --out $VIDEO --workers 128 > fetch_all.log 2>&1 &
+    --full --arrays images.front_1 --repack --out $VIDEO --workers 128 > fetch_all.log 2>&1 &
 ```
 
+- **Keep the file count low** (3.4). Two options cut the episode root from ~14-17M files to ~0.05M:
+  - `--arrays images.front_1` downloads only the video plus the episode `zarr.json`. Training reads nothing else
+    from R2, because `state57`/`action57` come from step 1. The raw tracking arrays (`obs_*`, keypoints,
+    annotations) are skipped. In the one-file-per-frame scale episodes they are ~450 files per episode.
+  - `--repack` rewrites every one-file-per-frame `images.front_1` into a single shard as soon as that episode is
+    downloaded (`watch_download/repack.py`). The encoded frames are only concatenated, not re-encoded. This was
+    checked on a 15,919-frame scale episode: the training reader and zarr-python return byte-identical JPEGs
+    before and after, and the episode goes from 15,920 files to 2. During the download, each worker holds at most
+    one episode's per-frame files at a time.
+  - Without the two options the command downloads every episode as stored on R2. To repack video you already
+    have, run `python watch_download/repack.py <episode dirs...> --verify`.
 - The log prints one line per 500 episodes. Use `du -sh $VIDEO` for byte progress.
-- Re-running skips files that already exist. boto3 downloads to a temporary name and renames on success, so
-  an interrupted run never leaves a truncated file under the final name, though temporary files can be left
-  behind. To resume, run the same command again.
+- Re-running skips files that already exist. With `--repack` it also skips episodes that are already repacked.
+  boto3 downloads to a temporary name and renames on success, so an interrupted run never leaves a truncated
+  file under the final name, though temporary files can be left behind. To resume, run the same command again.
+  If a run is killed while it repacks an episode, delete that episode's `images.front_1` and run the command
+  again.
 - Sizes are uneven: MECKA ~0.14 GB, aria ~0.32 GB, and scale ~0.45 GB per episode on average, ranging from
   0.01 to 3.8 GB. Expect about 0.95 / 0.21 / 2.75 TB per source (estimated from 941 downloaded episodes).
 
@@ -197,9 +210,24 @@ It is the only camera. The R2 episodes come in three on-disk layouts, depending 
 | scale | either one shard `c/0`, or **one file per frame** `c/0` ... `c/T-1` | 1 or T |
 
 `c/` is a directory in all three layouts. The cosmos_policy reader handles all of them. A scale episode stored
-one file per frame contributes thousands of files, so the full set holds on the order of ten million small
-files. Check the inode budget of the target filesystem before you start (`df -i`), and expect `du`/`ls` on
-`$VIDEO` to be slow.
+one file per frame contributes thousands of files. Estimated file counts for the full set, extrapolated from
+the 941 locally downloaded episodes:
+
+| part | episodes | files per episode, as on R2 | files | with `--arrays images.front_1 --repack` |
+|---|---|---|---|---|
+| MECKA | 6,718 | ~35 | ~0.24 M | 4-6 per episode |
+| aria | 657 | ~26 | ~0.02 M | 3 |
+| scale, one shard | ~3,700-4,200 | ~19 | ~0.08 M | 3 |
+| scale, one file per frame | ~1,850-2,400 | ~6,800 (6,300 video + 450 other arrays) | **~12.5-16 M** | 3 |
+| v10-state `episodes/` (step 1) | 13,469 | ~72 | ~1 M | unchanged |
+| **total** | | | **~14-17 M files** (plus ~0.3 M directories) | **~1.05 M** (~0.05 M video) |
+
+The per-frame scale share is the main uncertainty in the "as on R2" column. Locally, every scale episode up to
+`2026-05-01-19-00` is stored per frame, and every one from `2026-05-01-19-23` is sharded. Applying that cutoff
+to the full list gives 1,850 per-frame episodes. The local ratio (39%) gives 2,400. With the 3.3 options this
+no longer matters. Without them, check the inode budget of the target filesystem before you start (`df -i`, at
+least 20 M free), and expect `du`/`ls` on `$VIDEO` to be slow. A repacked episode has the aria layout: one
+shard `c/0` with a trailing (offset, length) index.
 
 An episode is complete when all `ceil(shape / chunk_shape)` chunk files exist (`shape` and the outer
 `chunk_grid.chunk_shape` come from `images.front_1/zarr.json`). Step 4 checks this for every episode.
