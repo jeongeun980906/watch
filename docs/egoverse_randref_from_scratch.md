@@ -187,6 +187,10 @@ PATH=~/bin:$PATH nohup venv/bin/python watch_download/fetch_raw.py --list watch_
     checked on a 15,919-frame scale episode: the training reader and zarr-python return byte-identical JPEGs
     before and after, and the episode goes from 15,920 files to 2. During the download, each worker holds at most
     one episode's per-frame files at a time.
+  - Repacking only happens after every chunk object listed on R2 for that episode is present locally. Otherwise
+    the episode raises an error and the run stops, and re-running resumes it. Each repacked episode records
+    `images.front_1/repack_info.json` (frames, frames packed, objects listed on R2), and step 4 `--check`
+    fails any episode where fewer frames were packed than listed.
   - Without the two options the command downloads every episode as stored on R2. To repack video you already
     have, run `python watch_download/repack.py <episode dirs...> --verify`.
 - The log prints one line per 500 episodes. Use `du -sh $VIDEO` for byte progress.
