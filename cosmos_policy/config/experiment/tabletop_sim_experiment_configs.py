@@ -894,10 +894,10 @@ cosmos_predict2p5_2b_tabletop_sim_5task_plain_end_bridge_base__inference_only = 
 # pv0 (per-view nb=0, 224, a20, plain-end) 레이아웃/타깃/손실은 그대로, 출발 mid 만
 # random same-task reference mid (..._egoverse_ret_v3_448_state_randref_nomd_15k @15K) 로 바꾼다.
 # 기준 pv0 는 3 노드 x 8 GPU x bs 16 = global 384 로 8K (3.07M 샘플). 2 노드는 global 256 이라
-# 같은 샘플 수 기준으로 스케줄을 384/256 배 늘린다 (cycle 8K -> 12K). 학습은 6K 에서 멈춘다
-# (= 3 노드 기준 4K, 1.54M 샘플; GR1 v6 ICL 과 같은 규칙). LR 은 감쇠 중간 지점에서 끝난다.
-# 12K 끝까지(= 3 노드 8K) 돌리려면 trainer.max_iter=12000. warmup 200 과 peak LR 1e-4 는 고정.
-# save_iter 1,200 (5 개, 6K 포함).
+# 같은 샘플 수 기준으로 스케줄을 384/256 배 늘린다 (cycle 8K -> 12K). 학습도 12K 까지 돈다
+# (= 3 노드 기준 8K, 3.07M 샘플), 기준 pv0 와 같은 학습량.
+# warmup 200 과 peak LR 1e-4 는 고정.
+# save_iter 2,400 (5 개, 12K 포함).
 # 경로: TABLETOP_RANDREF_DATA (= <tabletopsim-watch>/data), TABLETOP_RANDREF_MANIFEST
 # (= <tabletopsim-watch>/manifest), mid 는 TABLETOP_RANDREF_CKPT.
 import os as _os
@@ -905,7 +905,7 @@ import os as _os
 _RR_TT_DATA = _os.environ.get("TABLETOP_RANDREF_DATA", TABLETOP_ROOT)
 _RR_TT_MANIFEST = _os.environ.get("TABLETOP_RANDREF_MANIFEST", MANIFEST)
 _RR_PV_CYCLE = 12_000  # 기준 8K 스케줄 x (384 / 256)
-_RR_PV_ITER = 6_000    # = 3 노드 기준 4K
+_RR_PV_ITER = 12_000   # = 3 노드 기준 8K (3.07M 샘플), 기준 pv0 와 같은 학습량
 _CK_RANDREF_MID = (
     "${oc.env:TABLETOP_RANDREF_CKPT,/mnt/ddn/tmp/egoverse_ret_v3_448_state_randref_2node/"
     "cosmos_policy/cosmos_v2_finetune/cosmos_predict2p5_2b_egoverse_ret_v3_448_state_randref_nomd_15k/"

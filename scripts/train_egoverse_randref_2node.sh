@@ -15,7 +15,7 @@
 #   STAGE=gr1             cosmos_predict2p5_2b_egoverse_gr1_ret_v6_448_state_${MID}_2node   (GR1 v6 ICL)
 #                         batch 4/GPU -> global 64, 6K iters (= reference 4K @ 3 nodes), warm start GR1_BASE_CKPT
 #   STAGE=pv0             cosmos_predict2p5_2b_tabletop_sim_5task_plain_end_a20_pv0_${MID}_2node
-#                         batch 16/GPU -> global 256, 6K iters (= reference 4K @ 3 nodes), warm start TABLETOP_RANDREF_CKPT
+#                         batch 16/GPU -> global 256, 12K iters (= reference 8K @ 3 nodes), warm start TABLETOP_RANDREF_CKPT
 #
 # Required env (all stages): IMAGINAIRE_OUTPUT_ROOT, MASTER_ADDR, NODE_RANK
 #   mid, randref_q50: EGOVERSE_RANDREF_MANIFEST (v10-state manifest + pairs_randref.npz + query_eps_nomd.json
