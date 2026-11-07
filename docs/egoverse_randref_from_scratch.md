@@ -673,6 +673,17 @@ python3 watch_download/assemble.py \
     --pairs pairs_conf50_full.npz --query-set query_eps_nomd.json --link --check
 ```
 
+Expected:
+
+```
+13440 episodes used by pairs_conf50_full.npz restricted to query_eps_nomd.json
+check: OK, all 13440 episodes complete (video chunks, state57, action57)
+```
+
+This is 145 more episodes than randref, and they are held-out episodes. WATCH's own `pairs.npz` references
+144 held-out episodes as references, never as queries (1.4% of its reference links). conf50 keeps this,
+because it starts from `pairs.npz` and re-matches over the same pool. randref instead redraws from a pool
+without the held-out episodes. All of them are in `all_episodes.csv`, so step 3 downloads them.
 `query_eps_nomd.json` covers the q50 run too (q50 is a subset).
 
 ### 9.4 Launch
