@@ -708,6 +708,22 @@ for _tag, _mid, _it in (("conf50", "conf50_nomd_15k", 15_000), ("conf50_q50", "c
     _e["job"]["name"] = _n
     globals()[_n] = _e
 
+# v6 ICL post-train from the two 4-node rebuttal mids (..._{randref,conf50}_nomd_4node @ 8K), 4 nodes:
+# 4 x 8 GPUs x batch 3 = global 96 = the v6 reference (3 x 8 x 4), so the reference schedule is used
+# unchanged (cycle 8K, warmup 500) and the run stops at the reference's 4K read-out point (384K samples).
+# GR1_BASE_CKPT overrides the warm-start path.
+for _tag in ("randref", "conf50"):
+    _n = f"cosmos_predict2p5_2b_egoverse_gr1_ret_v6_448_state_{_tag}_4node"
+    _e = _copy_conf50.deepcopy(cosmos_predict2p5_2b_egoverse_gr1_ret_v6_448_state_randref_2node)
+    _e["checkpoint"]["load_path"] = (
+        f"${{oc.env:GR1_BASE_CKPT,/mnt/ddn/tmp/egoverse_ret_v3_448_state_{_tag}_4node/cosmos_policy/"
+        f"cosmos_v2_finetune/cosmos_predict2p5_2b_egoverse_ret_v3_448_state_{_tag}_nomd_4node/checkpoints/model_000008000.pt}}")
+    _e["trainer"]["max_iter"] = 4_000
+    _e["scheduler"]["cycle_lengths"] = [8_000, 100000000000000]
+    _e["dataloader_train"]["batch_size"] = 3
+    _e["job"]["name"] = _n
+    globals()[_n] = _e
+
 # 2x-POOL post-train (2026-07-29): IDENTICAL to ..._v6_448_state, but the retrieval
 # demo pool is TEMPORALLY 2x-sped (dthdemo_*__2x / taskdemo_*__2x). Query/target are
 # unchanged 1x GR1 (abs_action57). Matching descriptor = no-velocity pos+rot+grip
@@ -1794,6 +1810,8 @@ ALL_EGOVERSE_GR1_RET_CONFIGS = [
     cosmos_predict2p5_2b_egoverse_gr1_ret_v6_448_state_conf50_2node,  # noqa: F821 (defined via globals())
     cosmos_predict2p5_2b_egoverse_gr1_ret_v6_448_state_conf50_q50_2node,  # noqa: F821
     cosmos_predict2p5_2b_egoverse_gr1_ret_v6_448_state_randref_q50_2node,  # noqa: F821
+    cosmos_predict2p5_2b_egoverse_gr1_ret_v6_448_state_randref_4node,  # noqa: F821
+    cosmos_predict2p5_2b_egoverse_gr1_ret_v6_448_state_conf50_4node,  # noqa: F821
     cosmos_predict2p5_2b_egoverse_gr1_ret_v6_2x_448_state,
     cosmos_predict2p5_2b_egoverse_gr1_ret_v6_2x_448_state_base,
     cosmos_predict2p5_2b_egoverse_gr1_ret_v6_448_state_vidonly,

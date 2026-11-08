@@ -208,6 +208,10 @@ to two reviewer controls on 2 nodes, with `scripts/train_egoverse_randref_2node.
 
 Both come with their GR1 v6 ICL and TableTop-Sim pv0 post-training.
 
+On 4-node groups, [docs/egoverse_rebuttal_4node.md](docs/egoverse_rebuttal_4node.md) launches the full randref
+and conf50 mids and their four post-trains with `scripts/train_egoverse_rebuttal_4node.sh`, keeping the global
+batch and schedule of every reference run (16 nodes: both mids side by side, then the four post-trains, ~31 h).
+
 ## 7. Repository layout
 
 ```
@@ -220,6 +224,7 @@ cosmos_policy/
   experiments/robot/robocasa/ RoboCasa eval
   _src/                       Cosmos (imaginaire / predict2 / predict2.5) backbone code
 scripts/train_egoverse_randref_2node.sh   2-node launcher for the rebuttal runs
+scripts/train_egoverse_rebuttal_4node.sh  4-node launcher for the rebuttal runs
 convert_dcp_to_pt.py          DCP checkpoint -> .pt
 build_egoverse_query_episode_sets.py      episode subsets for the data-scaling arms (q10-q75)
 gr1_local_eval.sh, tabletop_sim_eval.sh, tabletop_sim_eval_client.py, robocasa24_eval.sh,

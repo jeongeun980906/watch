@@ -1368,6 +1368,33 @@ cosmos_predict2p5_2b_egoverse_ret_v3_448_state_conf50_q50_nomd_8k = _ret_448_exp
     query_episode_set=f"{_CONF50_MANIFEST}/query_eps_q50_nomd.json")
 
 
+# ======================= 4-node versions of the two rebuttal mids (full query set) =======================
+# Same as ..._randref_nomd_15k / ..._conf50_nomd_15k, launched like the WATCH reference itself:
+# 4 nodes x 8 GPUs x batch 2 = global 64, 8K iters, the reference schedule (cycle 50K, warmup 500),
+# 512K samples. Only the references (pairs_name) and the MimicDroid-free query set differ from
+# ..._ret_v3_448_state. Launcher: scripts/train_egoverse_rebuttal_4node.sh, guide: docs/egoverse_rebuttal_4node.md
+_REB4_ITER = 8_000
+cosmos_predict2p5_2b_egoverse_ret_v3_448_state_randref_nomd_4node = _ret_448_experiment(
+    "cosmos_predict2p5_2b_egoverse_ret_v3_448_state_randref_nomd_4node", EgoVerseRetV3StateDataset,
+    batch_size=2,
+    base_kw={
+        **_DATASET_KW_V10,
+        "manifest_dir": _RANDREF_MANIFEST,
+        "t5_text_embeddings_path": f"{_RANDREF_MANIFEST}/t5_embeddings.pkl",
+        "action_stats_path": f"{_RANDREF_MANIFEST}/action57_stats.json",
+    },
+    max_iter=_REB4_ITER, scheduler=_scaled_scheduler(_REB4_ITER),
+    pairs_name="pairs_randref.npz",
+    query_episode_set=f"{_RANDREF_MANIFEST}/query_eps_nomd.json")
+
+cosmos_predict2p5_2b_egoverse_ret_v3_448_state_conf50_nomd_4node = _ret_448_experiment(
+    "cosmos_predict2p5_2b_egoverse_ret_v3_448_state_conf50_nomd_4node", EgoVerseRetV3StateDataset,
+    batch_size=2, base_kw=_CONF50_KW,
+    max_iter=_REB4_ITER, scheduler=_scaled_scheduler(_REB4_ITER),
+    pairs_name="pairs_conf50_full.npz",
+    query_episode_set=f"{_CONF50_MANIFEST}/query_eps_nomd.json")
+
+
 ALL_EGOVERSE_RET_CONFIGS = [
     cosmos_predict2p5_2b_egoverse_ret_v2,
     cosmos_predict2p5_2b_egoverse_ret_v3,
@@ -1408,6 +1435,8 @@ ALL_EGOVERSE_RET_CONFIGS = [
     cosmos_predict2p5_2b_egoverse_ret_v3_448_state_randref_nomd_15k,
     cosmos_predict2p5_2b_egoverse_ret_v3_448_state_randref_q50_nomd_8k,
     cosmos_predict2p5_2b_egoverse_ret_v3_448_state_conf50_nomd_15k,
+    cosmos_predict2p5_2b_egoverse_ret_v3_448_state_randref_nomd_4node,
+    cosmos_predict2p5_2b_egoverse_ret_v3_448_state_conf50_nomd_4node,
     cosmos_predict2p5_2b_egoverse_ret_v3_448_state_conf50_q50_nomd_8k,
     cosmos_predict2p5_2b_egoverse_ret_short_v11,
     cosmos_predict2p5_2b_egoverse_ret_short_state_v11,

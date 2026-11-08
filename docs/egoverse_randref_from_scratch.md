@@ -23,6 +23,10 @@ Steps:
 Section 9 adds the noisy task-label run (conf50: full as the main run, q50 optional), which reuses steps 1, 3
 and 5 and the same launcher.
 
+With 4-node groups (16 nodes: both mids side by side, then the four post-trains side by side), use
+[`egoverse_rebuttal_4node.md`](egoverse_rebuttal_4node.md) for the launch instead of sections 6-9; it keeps
+the reference global batch and schedule of every stage. Data and environment (steps 1-5) are the same.
+
 Every step ends with a check. Do not skip the checks, and pay most attention to step 4: the video reader does
 not raise on missing files, so a broken download trains without errors on blank frames.
 

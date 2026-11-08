@@ -951,6 +951,24 @@ for _tag, _mid, _it in (("conf50", "conf50_nomd_15k", 15_000), ("conf50_q50", "c
     globals()[f"{_name}__inference_only"] = _inference_only(_name)
 
 
+# ---- 4-node pv0 from the two 4-node rebuttal mids (..._{randref,conf50}_nomd_4node @ 8K) ----
+# 4 x 8 GPUs x batch 12 = global 384 = the pv0 reference (3 x 8 x 16): reference schedule unchanged
+# (8K iters, cycle 8K, warmup 200, save every 1,600). TABLETOP_RANDREF_CKPT overrides the warm-start path.
+for _tag in ("randref", "conf50"):
+    _name = f"cosmos_predict2p5_2b_tabletop_sim_5task_plain_end_a20_pv0_{_tag}_4node"
+    _ck = (f"${{oc.env:TABLETOP_RANDREF_CKPT,/mnt/ddn/tmp/egoverse_ret_v3_448_state_{_tag}_4node/"
+           f"cosmos_policy/cosmos_v2_finetune/cosmos_predict2p5_2b_egoverse_ret_v3_448_state_{_tag}_nomd_4node/"
+           f"checkpoints/model_000008000.pt}}")
+    _e = _tabletop_short_post(_name, copy.deepcopy(_ds), _ck, model_override=_pv_model_override(0))
+    _e["dataloader_train"]["batch_size"] = 12
+    _e["trainer"]["max_iter"] = 8_000
+    _e["checkpoint"]["save_iter"] = 1_600
+    _e["scheduler"]["cycle_lengths"] = [8_000, 100000000000000]
+    _e["scheduler"]["warm_up_steps"] = [200, 0]
+    globals()[_name] = _e
+    globals()[f"{_name}__inference_only"] = _inference_only(_name)
+
+
 ALL_TABLETOP_SIM_CONFIGS = [
     cosmos_predict2p5_2b_tabletop_sim_5task_plain_end,
     cosmos_predict2p5_2b_tabletop_sim_5task_plain_end__inference_only,
@@ -974,6 +992,8 @@ ALL_TABLETOP_SIM_CONFIGS = [
           for i in ("", "__inference_only")],
         *[globals()[f"cosmos_predict2p5_2b_tabletop_sim_5task_plain_end_a20_pv0_{t}_2node{i}"]
           for t in ("randref", "randref_q50", "conf50", "conf50_q50") for i in ("", "__inference_only")],
+        *[globals()[f"cosmos_predict2p5_2b_tabletop_sim_5task_plain_end_a20_pv0_{t}_4node{i}"]
+          for t in ("randref", "conf50") for i in ("", "__inference_only")],
         *[globals()[f"cosmos_predict2p5_2b_tabletop_sim_5task_plain_end_a20_pv0_{t}{i}"]
           for t in ("vidonly", "actonly") for i in ("", "__inference_only")],
         *[globals()[f"cosmos_predict2p5_2b_tabletop_sim_5task_plain_end_a20_pv0_ap_{t}{i}"]
