@@ -177,6 +177,23 @@ Rule of section 8 of the 2-node guide (~0.12 s per 1K tokens per GPU + 0.6 s): 8
 = 6.3K tokens per GPU per step, ~1.35 s/iter, 4,000 iterations ~1.5 h, ~1.7 h with checkpoint writes. Chunk 16 has
 the same token count (the 16 or 32 actions are tiled into the same action latent).
 
+## 8. Afterwards, on the robot (not part of the cluster job)
+
+The returned weights are served by `sprout_serve.sh` (GPU next to the robot) and driven by `sprout_real/policy.py`
+on the robot PC, which speaks the same zmq protocol as the GR00T server:
+
+```bash
+./sprout_serve.sh --selftest                       # no GPU: server samples == training samples (both chunks)
+EXP=cosmos_predict2p5_2b_sprout_3task_pv0_c32 ./sprout_serve.sh <sprout_pv0_c32/model_000004000.pt>
+EXP=cosmos_predict2p5_2b_sprout_3task_pv0_c16 STEPS=10 PORT=5556 ./sprout_serve.sh <sprout_pv0_c16/...pt>
+```
+
+The server builds each sample with `SproutPlainEndDataset`'s own code (state normalization, slots, roles, T5), the
+robot image JPEG-encoded as in the store. Latency on an RTX 5090: 0.42 s + 0.08 s per sampling step (35: 3.3 s,
+10: 1.25 s, 5: 0.84 s). `policy.py` sets the exec size (frames played per chunk) so that 1.5 x the inference time +
+a 0.4 s crossfade of the chunk is left when the next inference starts (at most 24 of 32 / 10 of 16); when that leaves
+under 4 frames it plays 24 / 10, holds, and infers (sync). Chunking, crossfade and IK settings are `policy.py` flags.
+
 ---
 
 ## Files
@@ -188,3 +205,4 @@ the same token count (the 16 or 32 actions are tiled into the same action latent
 | `cosmos_policy/datasets/sprout_dataset.py` | 29-D, 15 Hz, one ego camera, per-view layout |
 | `cosmos_policy/datasets/tabletop_sim_dataset.py` | per-view camera list and latent dt made settable (Tabletop unchanged) |
 | `sprout_train.sh` | single-machine launcher (smoke tests, `--dryrun`, T5 embeddings) |
+| `sprout_serve.sh`, `cosmos_policy/scripts/sprout_policy_server.py` | policy server for the robot (section 8) |

@@ -219,6 +219,8 @@ teleoperation (3 tasks x 20 episodes, 29-D, 15 Hz, one ego camera; HF `Jeongeun/
 TableTop-Sim pv0 layout, with `scripts/train_sprout_2node.sh`: chunk 32 and 16, each from the WATCH mid
 and from the within-video baseline mid (both public, HF `Jeongeun/cosmos-policy-watch-mid`) and from the
 Cosmos-Predict2.5-2B base, six 2-node groups side by side (12 nodes, ~2 h). Checkpoints at 2K, 3K and 4K are kept.
+`sprout_serve.sh` serves a returned checkpoint to the robot client over GR00T's zmq protocol, building each sample
+with the training dataset's code (`./sprout_serve.sh --selftest` checks it against training samples, no GPU).
 
 ## 7. Repository layout
 
@@ -229,6 +231,7 @@ cosmos_policy/
   datasets/                   EgoVerse retrieval datasets, GR1, TableTop-Sim and RoboCasa loaders
   scripts/train.py            training entry point
   scripts/eval_gr1_server.py, scripts/tabletop_sim_eval_server.py   policy servers for closed-loop eval
+  scripts/sprout_policy_server.py   policy server for the Sprout robot (sprout_serve.sh)
   experiments/robot/robocasa/ RoboCasa eval
   _src/                       Cosmos (imaginaire / predict2 / predict2.5) backbone code
 scripts/train_egoverse_randref_2node.sh   2-node launcher for the rebuttal runs
