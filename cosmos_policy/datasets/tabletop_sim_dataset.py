@@ -270,6 +270,9 @@ class _PlainSampleMixin:
     frame as its first future latent.
     """
 
+    dt = DT                                            # s per latent: 4 frames at the data's rate (Sprout: 4/15)
+    per_view_cams = (FRONT, SIDELEFT, SIDERIGHT)       # per_view camera slots, in this order
+
     def _plain_build_nofp(self, q, idx, aug, gq, qw0, q_tgt, past, S, blank1, blank4) -> dict:
         """RoboCasa ``..._t5_nofp`` 레이아웃 이식 (value 슬롯 제외).
 
@@ -401,39 +404,36 @@ class _PlainSampleMixin:
         fut_i = qw0 + self.chunk_size                            # t+32
         dup = lambda im: np.repeat(im[None], NUM_DUPLICATES, axis=0)
         nb = self.per_view_blank                                 # prefix 슬롯 수 (b2 = 2)
+        cams = tuple(self.per_view_cams)                         # Tabletop: front, sideleft, sideright
+        nc = len(cams)
 
         nf = bool(getattr(self, "no_future", False))              # FUTURE 슬롯 자체를 뺀다
         images = np.concatenate([
             blank1,                                              # 0 cur_state
             *[blank4.copy() for _ in range(nb)],                 # ret_action / ret_video
-            dup(rd(qw0, FRONT)),                                 # cur front
-            dup(rd(qw0, SIDELEFT)),                              # cur sideleft
-            dup(rd(qw0, SIDERIGHT)),                             # cur sideright
+            *[dup(rd(qw0, c)) for c in cams],                    # cur cameras
             blank4.copy(),                                       # action  (GEN)
-        ] + ([] if nf else [
-            dup(rd(fut_i, FRONT)),                               # future front
-            dup(rd(fut_i, SIDELEFT)),                            # future sideleft
-            dup(rd(fut_i, SIDERIGHT)),                           # future sideright
-        ]), axis=0)
+        ] + ([] if nf else [dup(rd(fut_i, c)) for c in cams]),   # future cameras
+            axis=0)
         assert images.shape[0] == self.chunk_duration, (images.shape, self.chunk_duration)
         images = preprocess_image(images, final_image_size=S, normalize_images=False,
                                   use_image_aug=aug, stronger_image_aug=aug)
 
         T = self.state_t
-        assert T == (5 if nf else 8) + nb, \
-            f"per_view(nb={nb}, no_future={nf}) layout is state_t={(5 if nf else 8)+nb}, got {T}"
+        want = 2 + nb + (nc if nf else 2 * nc)
+        assert T == want, f"per_view(nb={nb}, cams={nc}, no_future={nf}) layout is state_t={want}, got {T}"
         c0 = 1 + nb                                              # 첫 카메라 슬롯
-        a0 = c0 + 3                                              # action 슬롯
+        a0 = c0 + nc                                             # action 슬롯
         f0 = a0 + 1                                              # 첫 future 슬롯
         roles = np.empty(T, np.int64); tpos = np.empty(T, np.float32)
         roles[0], tpos[0] = ROLE_CUR_STATE, NOW_S
         if nb >= 1: roles[1], tpos[1] = ROLE_RET_ACTION, NOW_S
-        if nb >= 2: roles[2], tpos[2] = ROLE_RET_VIDEO, NOW_S - DT
-        roles[c0:c0+3], tpos[c0:c0+3] = ROLE_CUR_IMAGE, NOW_S    # 세 뷰가 role/t 를 공유 (b2)
+        if nb >= 2: roles[2], tpos[2] = ROLE_RET_VIDEO, NOW_S - self.dt
+        roles[c0:c0+nc], tpos[c0:c0+nc] = ROLE_CUR_IMAGE, NOW_S  # 뷰들이 role/t 를 공유 (b2)
         roles[a0], tpos[a0] = ROLE_ACTION, NOW_S
         if not nf:
-            roles[f0:f0+3] = ROLE_FUTURE
-            tpos[f0:f0+3] = NOW_S + DT * np.arange(1, 4)         # stagger (b2: True)
+            roles[f0:f0+nc] = ROLE_FUTURE
+            tpos[f0:f0+nc] = NOW_S + self.dt * np.arange(1, nc + 1)   # stagger (b2: True)
 
         cls = self.wcls[q]
         t5 = (torch.squeeze(self.t5_text_embeddings[cls]) if cls in self.t5_text_embeddings
@@ -458,15 +458,15 @@ class _PlainSampleMixin:
             "retrieved_action_latent_idx": 1 if nb >= 1 else -1,
             "retrieved_state_latent_idx": -1,
             "current_image_latent_idx": c0,
-            "current_image2_latent_idx": c0 + 1,
-            "current_wrist_image_latent_idx": c0 + 2,
+            "current_image2_latent_idx": c0 + 1 if nc >= 2 else -1,
+            "current_wrist_image_latent_idx": c0 + 2 if nc >= 3 else -1,
             "current_wrist_image2_latent_idx": -1,
             "action_latent_idx": a0,
             "future_video_start_latent_idx": -1 if nf else f0,
             "future_video_end_latent_idx": -1 if nf else T,
             "future_image_latent_idx": -1 if nf else f0,
-            "future_image2_latent_idx": -1 if nf else f0 + 1,
-            "future_wrist_image_latent_idx": -1 if nf else f0 + 2,
+            "future_image2_latent_idx": -1 if nf or nc < 2 else f0 + 1,
+            "future_wrist_image_latent_idx": -1 if nf or nc < 3 else f0 + 2,
             "future_wrist_image2_latent_idx": -1,
             "proprio": past.reshape(-1).astype(np.float32),
             "future_proprio": np.zeros(self.st_dim, np.float32),
@@ -543,10 +543,10 @@ class _PlainSampleMixin:
         roles[0], tpos[0] = ROLE_CUR_STATE, NOW_S
         if self.bridge_ret:
             roles[1], tpos[1] = ROLE_RET_ACTION, NOW_S          # 데모 액션 자리 (zero)
-            roles[2], tpos[2] = ROLE_RET_VIDEO, NOW_S - DT      # 데모 프레임 자리, PAST 시각
+            roles[2], tpos[2] = ROLE_RET_VIDEO, NOW_S - self.dt # 데모 프레임 자리, PAST 시각
         roles[1+nb], tpos[1+nb] = ROLE_CUR_IMAGE, NOW_S
         roles[2+nb], tpos[2+nb] = ROLE_ACTION, NOW_S
-        roles[3+nb:], tpos[3+nb:] = ROLE_FUTURE, NOW_S + DT * np.arange(1, K + 1)
+        roles[3+nb:], tpos[3+nb:] = ROLE_FUTURE, NOW_S + self.dt * np.arange(1, K + 1)
 
         cls = self.wcls[q]
         t5 = (torch.squeeze(self.t5_text_embeddings[cls]) if cls in self.t5_text_embeddings
@@ -701,9 +701,10 @@ class TabletopSimPlainEndImageDataset(TabletopSimPlainStateDataset):
             # blank + proprio + cam3 + action + fut3 (RoboCasa nofp 에서 value 만 뺀 것)
             return 9
         if getattr(self, "per_view", False):
-            # state + nb prefix + cam3 + action [+ fut3]
+            # state + nb prefix + cams + action [+ future cams]
             nb = int(getattr(self, "per_view_blank", 2))
-            return (5 if getattr(self, "no_future", False) else 8) + nb
+            nc = len(self.per_view_cams)
+            return 2 + nb + (nc if getattr(self, "no_future", False) else 2 * nc)
         return self.FUTURE_K + 3 + (2 if getattr(self, "bridge_ret", False) else 0)
 
     def bucket_key(self, r: int):

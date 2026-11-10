@@ -212,6 +212,14 @@ On 4-node groups, [docs/egoverse_rebuttal_4node.md](docs/egoverse_rebuttal_4node
 and conf50 mids and their four post-trains with `scripts/train_egoverse_rebuttal_4node.sh`, keeping the global
 batch and schedule of every reference run (16 nodes: both mids side by side, then the four post-trains, ~31 h).
 
+## 6b. Real robot (Sprout), context-free post-training
+
+[docs/real-robot-context-free.md](docs/real-robot-context-free.md) post-trains on Sprout real-robot
+teleoperation (3 tasks x 20 episodes, 29-D, 15 Hz, one ego camera; HF `Jeongeun/sprout-real-3task`) in the
+TableTop-Sim pv0 layout, with `scripts/train_sprout_2node.sh`: chunk 32 and 16, each from the WATCH mid
+(public, HF `Jeongeun/cosmos-policy-watch-mid`) and from the Cosmos-Predict2.5-2B base, four 2-node groups
+side by side (8 nodes, ~2 h). Checkpoints at 2K, 3K and 4K are kept.
+
 ## 7. Repository layout
 
 ```

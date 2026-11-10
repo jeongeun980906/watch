@@ -50,6 +50,9 @@ from cosmos_policy.config.experiment.egoverse_gr1_ret_experiment_configs import 
 from cosmos_policy.config.experiment.tabletop_sim_experiment_configs import (  # noqa: F401
     ALL_TABLETOP_SIM_CONFIGS,
 )
+from cosmos_policy.config.experiment.sprout_experiment_configs import (  # noqa: F401
+    ALL_SPROUT_CONFIGS,
+)
 
 cs = ConfigStore.instance()
 val_sampling_size_override = dict(
@@ -1616,6 +1619,8 @@ def register_configs():
         *ALL_EGOVERSE_GR1_RET_CONFIGS,
         # Tabletop-Sim bimanual ALOHA (57-D mapping, GR1 SHORT state layout)
         *ALL_TABLETOP_SIM_CONFIGS,
+        # Sprout real robot (native 29-D, 15 Hz, pv0, ego view)
+        *ALL_SPROUT_CONFIGS,
     ]:
         experiment_name = _item["job"]["name"]
         log.info(f"Registering experiment: {experiment_name}")
