@@ -21,8 +21,10 @@ windows (global batch 384); here, on 2 nodes x 8 GPUs x batch 8 = global 128 (sc
 one epoch is 81 iterations and 2K / 3K / 4K are 25 / 37 / 49 epochs.
 ``SPROUT_ITER`` changes it. The action is 29 values tiled into the latent volume, as the a20 arms tile 20.
 
-    ..._sprout_3task_pv0_c{32,16}        warm start from the WATCH mid (egoverse_ret_v3_448_state @ 8K)   = ours
-    ..._sprout_3task_pv0_c{32,16}_base   no mid (Cosmos-Predict2.5 base)
+    ..._sprout_3task_pv0_c{32,16}          warm start from the WATCH mid (egoverse_ret_v3_448_state @ 8K)   = ours
+    ..._sprout_3task_pv0_c{32,16}_within   from the within-video mid (..._state_blankret_bv2_v10 @ 8K): the same
+                                           recipe with a blank reference, i.e. no cross-video pairing
+    ..._sprout_3task_pv0_c{32,16}_base     no mid (Cosmos-Predict2.5 base)
 
 Launch with ``sprout_train.sh`` (T5 embeddings once with ``sprout_train.sh t5``).
 """
@@ -51,6 +53,12 @@ STATE_T = 2 + NB + 2 * N_CAMS
 _CK_WATCH_MID = (
     "${oc.env:SPROUT_MID_CKPT," + os.path.expanduser("~/WAM/WATCH/ckpt/watch-mid-v10/egoverse_ret_v3_448_state_4node/")
     + "model_000008000.pt}"
+)
+
+# within-video baseline mid (Tabletop's _CK_BLANKBC), HF Jeongeun/cosmos-policy-egoverse-mid-v10 (private)
+_CK_WITHIN_MID = (
+    "${oc.env:SPROUT_WITHIN_CKPT," + os.path.expanduser(
+        "~/WAM/WATCH/ckpt/watch-mid-v10/egoverse_ret_v3_448_state_blankret_bv2_v10_4node/") + "model_000008000.pt}"
 )
 
 _SPROUT_PV0_DATASET = L(SproutPlainEndDataset)(
@@ -103,7 +111,7 @@ def _sprout_pv0(name: str, ckpt: str, chunk: int):
 
 _NAMES = []
 for _chunk in (32, 16):
-  for _tag, _ck in (("", _CK_WATCH_MID), ("_base", "")):
+  for _tag, _ck in (("", _CK_WATCH_MID), ("_within", _CK_WITHIN_MID), ("_base", "")):
     _name = f"cosmos_predict2p5_2b_sprout_3task_pv0_c{_chunk}{_tag}"
     globals()[_name] = _sprout_pv0(_name, _ck, _chunk)
     globals()[f"{_name}__inference_only"] = _inference_only(_name)

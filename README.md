@@ -217,8 +217,8 @@ batch and schedule of every reference run (16 nodes: both mids side by side, the
 [docs/real-robot-context-free.md](docs/real-robot-context-free.md) post-trains on Sprout real-robot
 teleoperation (3 tasks x 20 episodes, 29-D, 15 Hz, one ego camera; HF `Jeongeun/sprout-real-3task`) in the
 TableTop-Sim pv0 layout, with `scripts/train_sprout_2node.sh`: chunk 32 and 16, each from the WATCH mid
-(public, HF `Jeongeun/cosmos-policy-watch-mid`) and from the Cosmos-Predict2.5-2B base, four 2-node groups
-side by side (8 nodes, ~2 h). Checkpoints at 2K, 3K and 4K are kept.
+and from the within-video baseline mid (both public, HF `Jeongeun/cosmos-policy-watch-mid`) and from the
+Cosmos-Predict2.5-2B base, six 2-node groups side by side (12 nodes, ~2 h). Checkpoints at 2K, 3K and 4K are kept.
 
 ## 7. Repository layout
 
