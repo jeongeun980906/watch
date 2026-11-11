@@ -1,4 +1,4 @@
-# GR1 v6 ICL closed-loop eval of the 4-node randref post-train (remaining L2/L3 atoms)
+# GR1 v6 ICL closed-loop eval of the 4-node randref post-train (L2/L3 atoms)
 
 This guide evaluates run 3 of [`egoverse_rebuttal_4node.md`](egoverse_rebuttal_4node.md): the GR1 v6 ICL
 post-train from the randref mid. It runs on the 8-GPU cluster eval node. The conf50 post-train (run 5) is
@@ -9,8 +9,9 @@ what is left goes to the cluster:
 
 | job | checkpoint | atoms | what is left |
 |---|---|---|---|
-| A | randref, 4K | 22 | all L2/L3 atoms except `PnPSinkToCabinetL2` |
-| B | randref, 4K | 1 | `PnPSinkToCabinetL2` demo_1 (the local run was cut off at 0/3) |
+| A | randref, 4K | 25 | every L2/L3 atom (`MODE=l2l3`): 8 tasks, 3-4 demos each |
+
+The 12 seen-task atoms (L1) are done locally (section 6).
 
 The protocol is the certified v2 flag set that `gr1_local_eval.sh` already carries; nothing changes:
 
@@ -37,7 +38,7 @@ all data from HF.
 | zarr episodes (`taskdemo_*`, `dthdemo_*`) | HF `Jeongeun/mimicdroid-gr1`: `data/*.tar` + `eval/taskdemo_l2l3.tar` | `EGOVERSE_GR1_HUM_ROOT` |
 | GR1 v6 manifest | HF `Jeongeun/mimicdroid-gr1`, `manifest/` | `PAIRS_DIR` |
 | server pools | HF `Jeongeun/mimicdroid-gr1`, `eval/pools/` | `POOL`, `PLAY_POOL` |
-| checkpoint | HF `watch-2026/watch-2026-posttrain` (private org, needs access), or the `.pt` from `convert_dcp_to_pt.py --iter 4000` after training | `CK` |
+| checkpoint | already on the server: the `.pt` from `convert_dcp_to_pt.py --iter 4000` after training (3.5 of the 4-node guide) | `CK` |
 | Cosmos-Predict2.5-2B base + VAE | HF `nvidia/Cosmos-Predict2.5-2B` | `HF_HOME` |
 
 `$ROOT` below is any directory with ~30 GB free (the kitchen assets are ~21 GB).
@@ -75,7 +76,7 @@ yes | .venv/bin/python robocasa/scripts/download_kitchen_assets.py      # ~21 GB
   and the GR1 arm then does not move.
 - `numpy` must stay at **1.23.3**. Installing `imageio[ffmpeg]` upgrades it to 2.x without saying so.
 
-### 1.3 Data and checkpoint
+### 1.3 Data
 
 ```bash
 cd $ROOT
@@ -86,10 +87,6 @@ cd mimicdroid-gr1 && (cd eval && sha256sum -c sha256.txt)
 mkdir -p egoverse && ls data/*.tar | xargs -P 8 -I{} tar -xf {} -C egoverse
 tar -xf eval/taskdemo_l2l3.tar -C egoverse
 ls -d egoverse/taskdemo_* | wc -l      # 37 = 12 seen + 25 L2/L3
-cd $ROOT
-$H download watch-2026/watch-2026-posttrain \
-    gr1_posttrain_v6_448_state_randref_4node/model_000004000.pt sha256.txt --local-dir ckpt
-(cd ckpt && sha256sum -c sha256.txt --ignore-missing)
 ```
 
 ### 1.4 Environment variables (every launch)
@@ -104,7 +101,7 @@ export EGOVERSE_GR1_HUM_ROOT=$ROOT/mimicdroid-gr1/egoverse
 export PAIRS_DIR=$ROOT/mimicdroid-gr1/manifest
 export POOL=$ROOT/mimicdroid-gr1/eval/pools/taskdemo_pool_v6.npz
 export PLAY_POOL=$ROOT/mimicdroid-gr1/eval/pools/dth_pool_1x_v6.npz
-export RANDREF_CK=$ROOT/ckpt/gr1_posttrain_v6_448_state_randref_4node/model_000004000.pt
+export RANDREF_CK=<.../gr1_posttrain_v6_448_state_randref_4node/.../model_000004000.pt>   # on the server
 export RANDREF_EXP=cosmos_predict2p5_2b_egoverse_gr1_ret_v6_448_state_randref_4node
 export RES=$ROOT/gr1_rebuttal4_eval && mkdir -p $RES
 ```
@@ -133,22 +130,13 @@ Each `GPUS` entry is a physical GPU and runs one server and one client. The serv
 `MPORT0+g`. Two runs on the same node at the same time need **different `PORT0` and `MPORT0`, and disjoint
 `GPUS`**. Otherwise both runs die with `EADDRINUSE`, or a client connects to the other run's server.
 
-### 2.1 One node (8 GPUs): A + B together
-
-A takes 7 GPUs and B takes 1 GPU, at the same time:
+### 2.1 One node (8 GPUs)
 
 ```bash
-# A: randref, remaining L2/L3 atoms (22 atoms)
-CK=$RANDREF_CK EXP=$RANDREF_EXP OUT=$RES/gr1_v6_randref_4node_4000_l2l3 MODE=full \
-ONLY_TASKS="PnPSinkToRightCounterPlateL2 PnPSinkToRightCounterPlateL3 CloseLeftCabinetDoorL2 CloseLeftCabinetDoorL3 CloseRightCabinetDoorL2 TurnOnFaucetL3 PnPSinkToMicrowaveTopL3" \
-GPUS="0 1 2 3 4 5 6" PORT0=8700 MPORT0=29600 \
+# A: randref, all L2/L3 atoms (25 atoms)
+CK=$RANDREF_CK EXP=$RANDREF_EXP OUT=$RES/gr1_v6_randref_4node_4000_l2l3 MODE=l2l3 \
+GPUS="0 1 2 3 4 5 6 7" PORT0=8700 MPORT0=29600 \
   nohup ./gr1_local_eval.sh > $RES/randref_l2l3.log 2>&1 &
-
-# B: randref, PnPSinkToCabinetL2 demo_1 (1 atom)
-CK=$RANDREF_CK EXP=$RANDREF_EXP OUT=$RES/gr1_v6_randref_4node_4000_cabL2d1 MODE=full \
-ONLY_TASKS="PnPSinkToCabinetL2" ONLY_DEMOS="1" \
-GPUS="7" PORT0=8800 MPORT0=29700 \
-  nohup ./gr1_local_eval.sh > $RES/randref_cabL2d1.log 2>&1 &
 ```
 
 ### 2.2 Re-running an atom that failed
@@ -157,7 +145,7 @@ When a line `[gpuN] ATOM FAILED <task>_<demo>` appears (the client crashed, not 
 that atom into the same `OUT`:
 
 ```bash
-CK=... EXP=... OUT=<same OUT> MODE=full ONLY_TASKS="<task>" ONLY_DEMOS="<n>" GPUS="0" PORT0=8750 MPORT0=29650 ./gr1_local_eval.sh
+CK=... EXP=... OUT=<same OUT> MODE=l2l3 ONLY_TASKS="<task>" ONLY_DEMOS="<n>" GPUS="0" PORT0=8750 MPORT0=29650 ./gr1_local_eval.sh
 ```
 
 This overwrites only that atom's `logs/task_<task>_demo_<n>.log`. The other logs stay, and `summary.txt` is
@@ -169,7 +157,7 @@ rebuilt from all of them.
 
 1. **The checkpoint:** the script checks that the server log has the basename of `CK`, and stops if it does
    not. Check also that the run log has the right `[eval] exp=` and `[eval] ckpt=` (randref).
-2. **Atom counts:** the log prints `[eval] mode=full atoms=N`: A `atoms=22`, B `atoms=1`.
+2. **Atom counts:** the log prints `[eval] mode=l2l3 atoms=25`.
 3. **f3r2 spawn:** each `logs/task_PnPSinkToCabinet*_demo_*.log` has
    `default spawn: anchor F+3/R+2 cm + jitter ±1.0 cm`. It must not have `--raw-spawn`.
 4. **Close\* at 10 ep:** every Close atom in `summary.txt` reads `x/10 ✓`.
@@ -190,9 +178,7 @@ The per-atom times give these rough totals:
 
 | job | rough time |
 |---|---|
-| A (22 atoms on 7 GPUs) | ~4-5 h |
-| B (1 atom) | ~1.3 h |
-| A + B side by side on one node | ~4-5 h |
+| A (25 atoms on 8 GPUs) | ~4-5 h |
 
 ## 5. What to send back
 
@@ -201,7 +187,7 @@ From each `OUT`, send `summary.txt` and the `logs/` folder (`task_*.log`, `serve
 
 ---
 
-## 6. What already ran locally (randref, merged with A + B)
+## 6. What already ran locally (randref L1, merged with A)
 
 Local results, run with the same protocol (`eval_mimicdroid/results/gr1_v6_randref_4node_4000/`):
 
@@ -211,7 +197,7 @@ Local results, run with the same protocol (`eval_mimicdroid/results/gr1_v6_randr
 | CloseLeftCabinetDoor demo_1/2/3 | 10/10, 10/10, 10/10 |
 | PnPSinkToCabinet demo_1/2/3 | 2/10, 1/10, 2/10 |
 | PnPSinkToRightCounterPlate demo_1/2/3 | 4/10, 6/10, 0/10 |
-| PnPSinkToCabinetL2 demo_2 | 0/10 |
-| PnPSinkToCabinetL2 demo_3 | (in progress) |
 
-The randref full result is these 14 atoms plus A (22) plus B (1), 37 atoms in all.
+The randref full result is these 12 atoms plus A (25), 37 atoms in all. PnPSinkToCabinetL2 was also partly
+run locally (demo_1 0/3 cut off, demo_2 0/10, demo_3 0/6 cut off); A runs it again in full, and those local
+numbers are only a cross-check.
