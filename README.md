@@ -211,6 +211,8 @@ Both come with their GR1 v6 ICL and TableTop-Sim pv0 post-training.
 On 4-node groups, [docs/egoverse_rebuttal_4node.md](docs/egoverse_rebuttal_4node.md) launches the full randref
 and conf50 mids and their four post-trains with `scripts/train_egoverse_rebuttal_4node.sh`, keeping the global
 batch and schedule of every reference run (16 nodes: both mids side by side, then the four post-trains, ~31 h).
+The GR1 v6 ICL closed-loop eval of the remaining randref L2/L3 atoms (8-GPU node) is in
+[docs/gr1_eval_rebuttal_4node.md](docs/gr1_eval_rebuttal_4node.md).
 
 ## 6b. Real robot (Sprout), context-free post-training
 

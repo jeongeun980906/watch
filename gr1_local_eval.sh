@@ -28,6 +28,13 @@ MPORT0=${MPORT0:-29600}
 EPISODES=${EPISODES:-10}
 REPO=${REPO:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}   # this repo
 FW=${FW:-/mnt/ddn/cosmos-framework}          # cosmos-framework checkout (GR1 sim client)
+# Eval data. The defaults are the cluster paths; off the cluster, set them to the HF layout
+# (docs/gr1_eval_rebuttal_4node.md, section 1).
+export EGOVERSE_GR1_HUM_ROOT=${EGOVERSE_GR1_HUM_ROOT:-/mnt/ddn/dataset/egoverse}            # zarr episodes: taskdemo_* + dthdemo_*
+export MIMICDROID_TASKDEMOS=${MIMICDROID_TASKDEMOS:-/mnt/ddn/dataset/MimicDroidDataset/TaskDemos}   # env-init hdf5 (client)
+POOL=${POOL:-/mnt/ddn/dataset/egoverse_pairs_v2/taskdemo_pool_v6.npz}
+PLAY_POOL=${PLAY_POOL:-/mnt/ddn/dataset/egoverse_pairs_v2/dth_pool_1x_v6.npz}
+PAIRS_DIR=${PAIRS_DIR:-/mnt/ddn/dataset/egoverse_pairs_gr1_v6}                              # GR1 v6 manifest
 CLIENT_PY=${CLIENT_PY:-/mnt/ddn/mimicdroid-robocasa/.venv/bin/python}   # MimicDroid robocasa venv
 # 모든 atom 의 클라이언트 호출에 덧붙일 플래그 (기본 빈 값 = 기존 동작 그대로).
 # 용도 예: EXTRA_FLAGS=--raw-spawn 으로 PnPSinkToCabinet* 의 f3r2 기본 앵커를 끄고
@@ -164,6 +171,7 @@ worker() {
     --checkpoint "$CK" --experiment "$EXP" \
     --pred-target abs_action57 --resolution 448 \
     --pinned-advance mono --pin-lock-ep --mono-floor 8 \
+    --pool "$POOL" --play-pool "$PLAY_POOL" --pairs-dir "$PAIRS_DIR" \
     --port $port > "$LOGS/server_gpu$g.log" 2>&1 &
   local spid=$!; echo "$spid" > "$PIDDIR/gpu$g.pid"
 

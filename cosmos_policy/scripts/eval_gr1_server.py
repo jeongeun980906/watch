@@ -89,7 +89,7 @@ from cosmos_policy.datasets.egoverse_ret_v2_dataset import (
     ROLE_RET_VIDEO,
 )
 
-HUM_ROOT = "/mnt/ddn/dataset/egoverse"
+HUM_ROOT = os.environ.get("EGOVERSE_GR1_HUM_ROOT", "/mnt/ddn/dataset/egoverse")
 DEMO_EMB = "mimicdroid"
 CHUNK = 32
 NUM_DUP = 4
