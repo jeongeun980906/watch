@@ -11,7 +11,7 @@ what is left goes to the cluster:
 |---|---|---|---|
 | A | randref, 4K | 25 | every L2/L3 atom (`MODE=l2l3`): 8 tasks, 3-4 demos each |
 
-The 12 seen-task atoms (L1) are done locally (section 6).
+The 12 seen-task atoms (L1) are done locally.
 
 The protocol is the certified v2 flag set that `gr1_local_eval.sh` already carries; nothing changes:
 
@@ -184,20 +184,3 @@ The per-atom times give these rough totals:
 
 From each `OUT`, send `summary.txt` and the `logs/` folder (`task_*.log`, `server_gpu*.log`), plus the run log
 `$RES/*.log`. The `videos_<task>/` folders are optional; they are large.
-
----
-
-## 6. What already ran locally (randref L1, merged with A)
-
-Local results, run with the same protocol (`eval_mimicdroid/results/gr1_v6_randref_4node_4000/`):
-
-| atom | randref |
-|---|---|
-| TurnOnFaucet demo_1/2/3 | 10/10, 10/10, 10/10 |
-| CloseLeftCabinetDoor demo_1/2/3 | 10/10, 10/10, 10/10 |
-| PnPSinkToCabinet demo_1/2/3 | 2/10, 1/10, 2/10 |
-| PnPSinkToRightCounterPlate demo_1/2/3 | 4/10, 6/10, 0/10 |
-
-The randref full result is these 12 atoms plus A (25), 37 atoms in all. PnPSinkToCabinetL2 was also partly
-run locally (demo_1 0/3 cut off, demo_2 0/10, demo_3 0/6 cut off); A runs it again in full, and those local
-numbers are only a cross-check.
