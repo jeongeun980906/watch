@@ -1,7 +1,8 @@
 #!/bin/bash
-# Sprout real-robot post-train (context-free, pv0 style) on 2 nodes x 8 GPUs. Six runs, one 2-node group each.
+# Sprout real-robot post-train on 2 nodes x 8 GPUs, one 2-node group per run: context-free (pv0 style, six arms) or
+# in-context with a human ghost demo (ICL, three arms).
 # Run this script ONCE PER NODE of a group with the group's MASTER_ADDR/MASTER_PORT and NODE_RANK=0..1.
-# Guide: docs/real-robot-context-free.md
+# Guides: docs/real-robot-context-free.md (c32 ... c16_base), docs/real-robot-icl.md (icl*)
 #
 #   ARM=c32        cosmos_predict2p5_2b_sprout_3task_pv0_c32        chunk 32, from the WATCH mid   (ours)
 #   ARM=c16        cosmos_predict2p5_2b_sprout_3task_pv0_c16        chunk 16, from the WATCH mid   (ours)
@@ -11,20 +12,31 @@
 #   ARM=c16_base   cosmos_predict2p5_2b_sprout_3task_pv0_c16_base   chunk 16, no mid
 #   all: batch 8/GPU -> global 128, 4K iterations (49 epochs of the 10,358 windows), a checkpoint every 1K
 #
+#   ARM=icl        cosmos_predict2p5_2b_sprout_icl_c32              human ghost demo in context, from the WATCH mid
+#   ARM=icl_base   cosmos_predict2p5_2b_sprout_icl_c32_base         same, no mid
+#   ARM=icl_mix30  cosmos_predict2p5_2b_sprout_icl_c32_mix30        WATCH mid, 30% of demos from another episode
+#   icl*: global 64 (half of pv0; the per-GPU batch is 64 / (NNODES x NPROC_PER_NODE): 4 on 2 x 8, 8 on 1 x 8),
+#         4K iterations (42 epochs of the 6,158 windows of the two tasks with human data), a checkpoint every 1K
+#
 # Required env: IMAGINAIRE_OUTPUT_ROOT, MASTER_ADDR, NODE_RANK, SPROUT_ROOT (the HF dataset, h5 + manifest/)
-#               SPROUT_MID_CKPT (the WATCH mid .pt) for c32/c16, SPROUT_WITHIN_CKPT (the within-video mid .pt)
+#               SPROUT_MID_CKPT (the WATCH mid .pt) for c32/c16/icl/icl_mix30, SPROUT_WITHIN_CKPT (the within-video mid .pt)
 #               for *_within
 # Optional env: MASTER_PORT (12351)  NNODES (2)  NPROC_PER_NODE (8)  WANDB_MODE (online)  PY (python)
 #               EXTRA_OVERRIDES   extra hydra overrides after the experiment (e.g. "trainer.max_iter=20")
 set -euo pipefail
 
 ARM=${ARM:-c32}
-case "$ARM" in c32|c16|c32_within|c16_within|c32_base|c16_base) ;;
-  *) echo "ARM must be c32, c16, c32_within, c16_within, c32_base or c16_base (got $ARM)" >&2; exit 1 ;; esac
-EXP=cosmos_predict2p5_2b_sprout_3task_pv0_${ARM}
-BATCH_SIZE=8; GBATCH=128
 NNODES=${NNODES:-2}
 NPROC_PER_NODE=${NPROC_PER_NODE:-8}
+case "$ARM" in
+  c32|c16|c32_within|c16_within|c32_base|c16_base)
+    EXP=cosmos_predict2p5_2b_sprout_3task_pv0_${ARM}; BATCH_SIZE=8; GBATCH=128 ;;
+  icl|icl_base|icl_mix30)
+    EXP=cosmos_predict2p5_2b_sprout_icl_c32${ARM#icl}; GBATCH=64
+    (( GBATCH % (NNODES * NPROC_PER_NODE) == 0 )) || { echo "global $GBATCH not divisible by $NNODES x $NPROC_PER_NODE GPUs" >&2; exit 1; }
+    BATCH_SIZE=$(( GBATCH / (NNODES * NPROC_PER_NODE) )) ;;
+  *) echo "ARM must be c32, c16, c32_within, c16_within, c32_base, c16_base, icl, icl_base or icl_mix30 (got $ARM)" >&2; exit 1 ;;
+esac
 MASTER_PORT=${MASTER_PORT:-12351}
 WANDB_MODE=${WANDB_MODE:-online}
 PY=${PY:-python}
@@ -41,8 +53,15 @@ for t in sprout_cup_to_drawer sprout_open_drawer sprout_cup_close_drawer; do
   n=$(ls "$SPROUT_ROOT/$t"/episode_*.h5 2>/dev/null | wc -l)
   [ "$n" -eq 20 ] || { echo "[$ARM] $SPROUT_ROOT/$t has $n episodes, expected 20" >&2; exit 1; }
 done
+if [[ "$ARM" == icl* ]]; then
+  for f in human_state57_stats.json human_ghost.json human_pairs.npz; do need_file "$SPROUT_ROOT/manifest/$f"; done
+  for t in sprout_cup_to_drawer sprout_open_drawer; do
+    n=$(ls "$SPROUT_ROOT/human_ghost/$t"/episode_*.h5 2>/dev/null | wc -l)
+    [ "$n" -eq 20 ] || { echo "[$ARM] $SPROUT_ROOT/human_ghost/$t has $n ghost episodes, expected 20" >&2; exit 1; }
+  done
+fi
 case "$ARM" in
-  c32|c16)   : "${SPROUT_MID_CKPT:?set SPROUT_MID_CKPT (WATCH mid .pt)}"; need_file "$SPROUT_MID_CKPT"; export SPROUT_MID_CKPT ;;
+  c32|c16|icl|icl_mix30)   : "${SPROUT_MID_CKPT:?set SPROUT_MID_CKPT (WATCH mid .pt)}"; need_file "$SPROUT_MID_CKPT"; export SPROUT_MID_CKPT ;;
   *_within)  : "${SPROUT_WITHIN_CKPT:?set SPROUT_WITHIN_CKPT (within-video mid .pt)}"; need_file "$SPROUT_WITHIN_CKPT"
              export SPROUT_WITHIN_CKPT ;;
 esac
@@ -52,7 +71,7 @@ cd "$(dirname "$0")/.."   # cosmos_policy repo root
 ngpu=$(nvidia-smi -L | wc -l)
 [ "$ngpu" -ge "$NPROC_PER_NODE" ] || { echo "node has $ngpu GPUs < NPROC_PER_NODE=$NPROC_PER_NODE" >&2; exit 1; }
 gbatch=$((NNODES * NPROC_PER_NODE * BATCH_SIZE))
-[ "$gbatch" -eq "$GBATCH" ] || echo "WARNING: global batch $gbatch != $GBATCH; the 4K budget of $EXP assumes $GBATCH" >&2
+[ "$gbatch" -eq "$GBATCH" ] || echo "WARNING: global batch $gbatch != $GBATCH; the schedule of $EXP assumes $GBATCH" >&2
 
 mkdir -p "$IMAGINAIRE_OUTPUT_ROOT/pod_logs"
 LOG="$IMAGINAIRE_OUTPUT_ROOT/pod_logs/sprout_${ARM}_node${NODE_RANK}.log"

@@ -39,7 +39,7 @@ from cosmos_policy.config.experiment.tabletop_sim_experiment_configs import (
     _plain_end_model_override,
     _tabletop_short_post,
 )
-from cosmos_policy.datasets.sprout_dataset import DIM29, SPROUT_ROOT, SproutPlainEndDataset
+from cosmos_policy.datasets.sprout_dataset import DIM29, SPROUT_ROOT, SproutIclDataset, SproutPlainEndDataset
 
 MANIFEST = f"{SPROUT_ROOT}/manifest"
 ITER = int(os.environ.get("SPROUT_ITER", 4_000))
@@ -114,6 +114,61 @@ for _chunk in (32, 16):
   for _tag, _ck in (("", _CK_WATCH_MID), ("_within", _CK_WITHIN_MID), ("_base", "")):
     _name = f"cosmos_predict2p5_2b_sprout_3task_pv0_c{_chunk}{_tag}"
     globals()[_name] = _sprout_pv0(_name, _ck, _chunk)
+    globals()[f"{_name}__inference_only"] = _inference_only(_name)
+    _NAMES += [_name, f"{_name}__inference_only"]
+
+# ---- ICL: human ghost demo in context (2026-11-11) --------------------------------------------------------------
+# GR1 v6 (..._egoverse_gr1_ret_v6_448_state: demo video + demo state chunk -> action + future) shrunk to
+# state_t = 7 for one 224 ego camera: demo = its first and last frame + its 32 x 57 human state chunk, future = the
+# chunk-end frame (pv0). Layout and reasons: SproutIclDataset (sprout_dataset.py). 196 tokens per latent, 1,372 in all
+# (v6: 784 x 20 = 15,680).
+#
+# Data: cup_to_drawer + open_drawer only (pnp has no human data), 6,158 windows; the demo is the Quest ghost of the
+# query's own robot episode, at the same t +- 6 frames (``human_ghost/``, quest_capture/pc/to_sprout_ghost.py).
+#   ..._sprout_icl_c32          WATCH mid (same as pv0)
+#   ..._sprout_icl_c32_base     no mid
+#   ..._sprout_icl_c32_mix30    WATCH mid, 30% of demos a retrieved ghost of ANOTHER episode
+# Schedule (user, 2026-11-12): pv0's 4K iterations at HALF its global batch, i.e. global 64
+# (scripts/train_sprout_2node.sh ARM=icl*: 2 nodes x 8 GPUs x 4, or 1 node x 8 x 8). One epoch of the 6,158 windows is
+# 96 iterations, so 1K / 2K / 3K / 4K = 10 / 21 / 31 / 42 epochs. SPROUT_ICL_ITER / SPROUT_ICL_SAVE_ITER change it.
+ICL_ITER = int(os.environ.get("SPROUT_ICL_ITER", 4_000))
+ICL_SAVE_ITER = int(os.environ.get("SPROUT_ICL_SAVE_ITER", 1_000))
+ICL_STATE_T = 7
+ICL_N_COND = 5          # cur_state, ret_action, demo start, demo end, cur_image
+
+_SPROUT_ICL_DATASET = L(SproutIclDataset)(**{**{k: v for k, v in _SPROUT_PV0_DATASET.items() if k != "_target_"},
+                                             "jitter": 6, "other_prob": 0.0})
+
+
+def _sprout_icl_override() -> dict:
+    o = _plain_end_model_override()
+    o["chunk_size"] = 32
+    o["action_dim"] = DIM29
+    o["proprio_dim"] = DIM29
+    o["state_t"] = ICL_STATE_T
+    o["tokenizer"] = dict(chunk_duration=1 + 4 * (ICL_STATE_T - 1))      # 25
+    o["min_num_conditional_frames"] = ICL_N_COND
+    o["max_num_conditional_frames"] = ICL_N_COND
+    o["conditional_frames_probs"] = {ICL_N_COND: 1.0}
+    return o
+
+
+def _sprout_icl(name: str, ckpt: str, other_prob: float = 0.0):
+    ds = copy.deepcopy(_SPROUT_ICL_DATASET)
+    ds.other_prob = other_prob
+    ds.chunk_size = 32
+    e = _tabletop_short_post(name, ds, ckpt, model_override=_sprout_icl_override())
+    e["dataloader_train"]["batch_size"] = BATCH
+    e["trainer"]["max_iter"] = ICL_ITER
+    e["checkpoint"]["save_iter"] = ICL_SAVE_ITER
+    e["scheduler"]["cycle_lengths"] = [ICL_ITER, 100000000000000]
+    e["scheduler"]["warm_up_steps"] = [ICL_ITER // 40, 0]
+    return e
+
+
+for _tag, _ck, _op in (("", _CK_WATCH_MID, 0.0), ("_base", "", 0.0), ("_mix30", _CK_WATCH_MID, 0.3)):
+    _name = f"cosmos_predict2p5_2b_sprout_icl_c32{_tag}"
+    globals()[_name] = _sprout_icl(_name, _ck, _op)
     globals()[f"{_name}__inference_only"] = _inference_only(_name)
     _NAMES += [_name, f"{_name}__inference_only"]
 
