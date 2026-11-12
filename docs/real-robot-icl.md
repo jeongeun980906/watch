@@ -1,6 +1,6 @@
-# Real robot (Sprout), in-context post-training: 3 runs on 6 nodes (3 groups of 2)
+# Real robot (Sprout), in-context post-training: 4 runs on 8 nodes (4 groups of 2)
 
-Three post-trainings on the Sprout real-robot data where a **human demonstration of the same moment is in the
+Four post-trainings on the Sprout real-robot data where a **human demonstration of the same moment is in the
 context**: the GR1 v6 ICL layout (`..._egoverse_gr1_ret_v6_448_state`), shrunk for one 224 ego camera. One 2-node
 group per run, all at the same time. **Send back the 2K, 3K and 4K checkpoints of every run** (section 6).
 
@@ -9,8 +9,9 @@ group per run, all at the same time. **Send back the 2K, 3K and 4K checkpoints o
 | G | `icl` | `cosmos_predict2p5_2b_sprout_icl_c32` | own ghost | WATCH mid (ours) | 12357 |
 | H | `icl_base` | `cosmos_predict2p5_2b_sprout_icl_c32_base` | own ghost | Cosmos-Predict2.5-2B base | 12358 |
 | I | `icl_mix30` | `cosmos_predict2p5_2b_sprout_icl_c32_mix30` | own ghost, 30% another episode's | WATCH mid | 12359 |
+| J | `icl_mix30_base` | `cosmos_predict2p5_2b_sprout_icl_c32_mix30_base` | own ghost, 30% another episode's | Cosmos-Predict2.5-2B base | 12360 |
 
-All three: chunk 32, **global batch 64** (half of the context-free runs: 2 nodes x 8 GPUs x batch 4),
+All four: chunk 32, **global batch 64** (half of the context-free runs: 2 nodes x 8 GPUs x batch 4),
 **4,000 iterations**, lr 1e-4 with 100 warmup steps then linear to 0.5e-4 at 4K, **a checkpoint every 1,000**.
 Estimated ~1.5 h per run (section 7).
 
@@ -44,7 +45,7 @@ state_t = 7, chunk_duration = 25, dt = 4/15 s
   - two demo frames instead of the demo's 8 latents;
   - the chunk-end future frame instead of 8 future latents (the pv0 future);
   - the current state only, not the past 32-step state chunk (pv0 and the robot server already work this way).
-- `icl_mix30` uses, for 30% of samples, a retrieved ghost of **another** episode instead
+- `icl_mix30` and `icl_mix30_base` use, for 30% of samples, a retrieved ghost of **another** episode instead
   (`manifest/human_pairs.npz`: 32-frame windows, wrist-path DTW in the body frame plus gripper timing). The aim is
   robustness to a demo that differs from the scene.
 - Data: `sprout_cup_to_drawer` and `sprout_open_drawer` only, 40 episodes and 6,158 windows.
@@ -98,7 +99,7 @@ MASTER_ADDR=<node 0> MASTER_PORT=12357 IMAGINAIRE_OUTPUT_ROOT=/shared/runs/sprou
 
 It must reach iteration 20 and write `iter_000000020`. Then `rm -rf /shared/runs/sprout_icl_smoke`.
 
-## 5. Launch: three groups at the same time
+## 5. Launch: four groups at the same time
 
 Each group: its own 2 nodes, its node 0 as `MASTER_ADDR`, its own port and its own output root.
 
@@ -114,6 +115,10 @@ MASTER_ADDR=<H node 0> MASTER_PORT=12358 IMAGINAIRE_OUTPUT_ROOT=/shared/runs/spr
 # group I: 30% another episode's ghost, WATCH mid
 MASTER_ADDR=<I node 0> MASTER_PORT=12359 IMAGINAIRE_OUTPUT_ROOT=/shared/runs/sprout_icl_mix30 \
   ARM=icl_mix30 NODE_RANK=<0..1> bash scripts/train_sprout_2node.sh
+
+# group J: 30% another episode's ghost, base
+MASTER_ADDR=<J node 0> MASTER_PORT=12360 IMAGINAIRE_OUTPUT_ROOT=/shared/runs/sprout_icl_mix30_base \
+  ARM=icl_mix30_base NODE_RANK=<0..1> bash scripts/train_sprout_2node.sh
 ```
 
 Resume after a crash: launch again with the same output root, node count and batch.
@@ -125,16 +130,16 @@ Resume after a crash: launch again with the same output root, node count and bat
    ```
    [TabletopSim] task_filter=['sprout_cup_to_drawer', 'sprout_open_drawer'] -> windows 10358 -> 6158
    [TabletopSim] T5 coverage OK (2 instructions)
-   [SproutIcl] windows=6158 jitter=+-6 other_prob=0.0 state_t=7 chunk_duration=25     (other_prob=0.3 for group I)
+   [SproutIcl] windows=6158 jitter=+-6 other_prob=0.0 state_t=7 chunk_duration=25     (other_prob=0.3 for groups I and J)
    ```
-3. Warm start: G and I load `.../watch-mid/egoverse_ret_v3_448_state_4node/model_000008000.pt`, H the
+3. Warm start: G and I load `.../watch-mid/egoverse_ret_v3_448_state_4node/model_000008000.pt`, H and J the
    Cosmos-Predict2.5-2B base.
 4. LR: 100 warmup steps to 1e-4, 0.5e-4 at 4K. Loss finite, iteration time stable after ~50 iterations.
 
 ## 6. Outputs: send back 2K, 3K and 4K of every run
 
 ```bash
-for arm in icl icl_base icl_mix30; do
+for arm in icl icl_base icl_mix30 icl_mix30_base; do
   tag=cosmos_predict2p5_2b_sprout_icl_c32${arm#icl}
   for it in 2000 3000 4000; do
     IMAGINAIRE_OUTPUT_ROOT=/shared/runs/sprout_${arm} python convert_dcp_to_pt.py --tag $tag --iter $it
@@ -146,8 +151,8 @@ for arm in icl icl_base icl_mix30; do
 done
 ```
 
-Expected in the repo: `sprout_{icl,icl_base,icl_mix30}/model_00000{2,3,4}000.pt` (9 files, ~3.9 GB each). Please
-also send the three `pod_logs/sprout_<ARM>_node0.log` files or the W&B run links.
+Expected in the repo: `sprout_{icl,icl_base,icl_mix30,icl_mix30_base}/model_00000{2,3,4}000.pt` (12 files, ~3.9 GB each). Please
+also send the four `pod_logs/sprout_<ARM>_node0.log` files or the W&B run links.
 
 ## 7. Estimated time
 
@@ -160,6 +165,6 @@ Rule of section 8 of the 2-node guide (~0.12 s per 1K tokens per GPU + 0.6 s): 4
 
 | file | content |
 |---|---|
-| `scripts/train_sprout_2node.sh` | 2-node launcher, `ARM=icl|icl_base|icl_mix30` (global 64) |
-| `cosmos_policy/config/experiment/sprout_experiment_configs.py` | the three `sprout_icl_c32*` experiments |
+| `scripts/train_sprout_2node.sh` | 2-node launcher, `ARM=icl|icl_base|icl_mix30|icl_mix30_base` (global 64) |
+| `cosmos_policy/config/experiment/sprout_experiment_configs.py` | the four `sprout_icl_c32*` experiments |
 | `cosmos_policy/datasets/sprout_dataset.py` | `SproutIclDataset`: ghost demo slots, roles, jitter, other-episode mix |

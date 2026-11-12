@@ -15,6 +15,7 @@
 #   ARM=icl        cosmos_predict2p5_2b_sprout_icl_c32              human ghost demo in context, from the WATCH mid
 #   ARM=icl_base   cosmos_predict2p5_2b_sprout_icl_c32_base         same, no mid
 #   ARM=icl_mix30  cosmos_predict2p5_2b_sprout_icl_c32_mix30        WATCH mid, 30% of demos from another episode
+#   ARM=icl_mix30_base cosmos_predict2p5_2b_sprout_icl_c32_mix30_base no mid, 30% of demos from another episode
 #   icl*: global 64 (half of pv0; the per-GPU batch is 64 / (NNODES x NPROC_PER_NODE): 4 on 2 x 8, 8 on 1 x 8),
 #         4K iterations (42 epochs of the 6,158 windows of the two tasks with human data), a checkpoint every 1K
 #
@@ -31,11 +32,11 @@ NPROC_PER_NODE=${NPROC_PER_NODE:-8}
 case "$ARM" in
   c32|c16|c32_within|c16_within|c32_base|c16_base)
     EXP=cosmos_predict2p5_2b_sprout_3task_pv0_${ARM}; BATCH_SIZE=8; GBATCH=128 ;;
-  icl|icl_base|icl_mix30)
+  icl|icl_base|icl_mix30|icl_mix30_base)
     EXP=cosmos_predict2p5_2b_sprout_icl_c32${ARM#icl}; GBATCH=64
     (( GBATCH % (NNODES * NPROC_PER_NODE) == 0 )) || { echo "global $GBATCH not divisible by $NNODES x $NPROC_PER_NODE GPUs" >&2; exit 1; }
     BATCH_SIZE=$(( GBATCH / (NNODES * NPROC_PER_NODE) )) ;;
-  *) echo "ARM must be c32, c16, c32_within, c16_within, c32_base, c16_base, icl, icl_base or icl_mix30 (got $ARM)" >&2; exit 1 ;;
+  *) echo "ARM must be c32, c16, c32_within, c16_within, c32_base, c16_base, icl, icl_base, icl_mix30 or icl_mix30_base (got $ARM)" >&2; exit 1 ;;
 esac
 MASTER_PORT=${MASTER_PORT:-12351}
 WANDB_MODE=${WANDB_MODE:-online}

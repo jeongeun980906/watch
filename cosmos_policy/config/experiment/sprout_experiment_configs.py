@@ -128,6 +128,7 @@ for _chunk in (32, 16):
 #   ..._sprout_icl_c32          WATCH mid (same as pv0)
 #   ..._sprout_icl_c32_base     no mid
 #   ..._sprout_icl_c32_mix30    WATCH mid, 30% of demos a retrieved ghost of ANOTHER episode
+#   ..._sprout_icl_c32_mix30_base   no mid, 30% of demos from another episode
 # Schedule (user, 2026-11-12): pv0's 4K iterations at HALF its global batch, i.e. global 64
 # (scripts/train_sprout_2node.sh ARM=icl*: 2 nodes x 8 GPUs x 4, or 1 node x 8 x 8). One epoch of the 6,158 windows is
 # 96 iterations, so 1K / 2K / 3K / 4K = 10 / 21 / 31 / 42 epochs. SPROUT_ICL_ITER / SPROUT_ICL_SAVE_ITER change it.
@@ -166,7 +167,7 @@ def _sprout_icl(name: str, ckpt: str, other_prob: float = 0.0):
     return e
 
 
-for _tag, _ck, _op in (("", _CK_WATCH_MID, 0.0), ("_base", "", 0.0), ("_mix30", _CK_WATCH_MID, 0.3)):
+for _tag, _ck, _op in (("", _CK_WATCH_MID, 0.0), ("_base", "", 0.0), ("_mix30", _CK_WATCH_MID, 0.3), ("_mix30_base", "", 0.3)):
     _name = f"cosmos_predict2p5_2b_sprout_icl_c32{_tag}"
     globals()[_name] = _sprout_icl(_name, _ck, _op)
     globals()[f"{_name}__inference_only"] = _inference_only(_name)

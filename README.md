@@ -229,9 +229,9 @@ with the training dataset's code (`./sprout_serve.sh --selftest` checks it again
 [docs/real-robot-icl.md](docs/real-robot-icl.md) puts a human demonstration of the same moment in the context: the
 GR1 v6 ICL layout shrunk to 7 latents (human demo state chunk + its first and last frame, current state and image ->
 action chunk + chunk-end image). The demos are Quest 3 "ghosts", a person following each robot episode in VR at the
-robot's speed (40 episodes of the two single-arm tasks, `human_ghost/` in HF `Jeongeun/sprout-real-3task`). Three
-2-node groups (`ARM=icl|icl_base|icl_mix30`): from the WATCH mid, from the base, and from the WATCH mid with 30% of
-demos from another episode; global batch 64, 4K iterations.
+robot's speed (40 episodes of the two single-arm tasks, `human_ghost/` in HF `Jeongeun/sprout-real-3task`). Four
+2-node groups (`ARM=icl|icl_base|icl_mix30|icl_mix30_base`): own-episode demos and 30% other-episode demos, each from
+the WATCH mid and from the base; global batch 64, 4K iterations, 8 nodes.
 
 ## 7. Repository layout
 
