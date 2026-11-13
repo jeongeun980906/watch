@@ -954,7 +954,9 @@ for _tag, _mid, _it in (("conf50", "conf50_nomd_15k", 15_000), ("conf50_q50", "c
 # ---- 4-node pv0 from the two 4-node rebuttal mids (..._{randref,conf50}_nomd_4node @ 8K) ----
 # 4 x 8 GPUs x batch 12 = global 384 = the pv0 reference (3 x 8 x 16): reference schedule unchanged
 # (8K iters, cycle 8K, warmup 200, save every 1,600). TABLETOP_RANDREF_CKPT overrides the warm-start path.
-for _tag in ("randref", "conf50"):
+# rematch / hawor_pairs / hawor_full: the RGB-only-hand mids (docs/egoverse_hawor_rgb.md), same recipe.
+_PV0_4NODE_TAGS = ("randref", "conf50", "rematch", "hawor_pairs", "hawor_full")
+for _tag in _PV0_4NODE_TAGS:
     _name = f"cosmos_predict2p5_2b_tabletop_sim_5task_plain_end_a20_pv0_{_tag}_4node"
     _ck = (f"${{oc.env:TABLETOP_RANDREF_CKPT,/mnt/ddn/tmp/egoverse_ret_v3_448_state_{_tag}_4node/"
            f"cosmos_policy/cosmos_v2_finetune/cosmos_predict2p5_2b_egoverse_ret_v3_448_state_{_tag}_nomd_4node/"
@@ -993,7 +995,7 @@ ALL_TABLETOP_SIM_CONFIGS = [
         *[globals()[f"cosmos_predict2p5_2b_tabletop_sim_5task_plain_end_a20_pv0_{t}_2node{i}"]
           for t in ("randref", "randref_q50", "conf50", "conf50_q50") for i in ("", "__inference_only")],
         *[globals()[f"cosmos_predict2p5_2b_tabletop_sim_5task_plain_end_a20_pv0_{t}_4node{i}"]
-          for t in ("randref", "conf50") for i in ("", "__inference_only")],
+          for t in _PV0_4NODE_TAGS for i in ("", "__inference_only")],
         *[globals()[f"cosmos_predict2p5_2b_tabletop_sim_5task_plain_end_a20_pv0_{t}{i}"]
           for t in ("vidonly", "actonly") for i in ("", "__inference_only")],
         *[globals()[f"cosmos_predict2p5_2b_tabletop_sim_5task_plain_end_a20_pv0_ap_{t}{i}"]

@@ -1395,6 +1395,43 @@ cosmos_predict2p5_2b_egoverse_ret_v3_448_state_conf50_nomd_4node = _ret_448_expe
     query_episode_set=f"{_CONF50_MANIFEST}/query_eps_nomd.json")
 
 
+# ======================= RGB-only hand trajectories (HaWoR), 4 nodes =======================
+# Reviewer question (yw5w): does WATCH still work when the hand trajectories come from images alone?
+# Pipeline: hawor_rgb/ (guide docs/egoverse_hawor_rgb.md): HaWoR on every frame -> per-source camera fit ->
+# state57/action57 from the images -> v10 matcher (71_3s port) re-run on (a) the tracked root and (b) the HaWoR
+# root. One manifest dir (EGOVERSE_HAWOR_MANIFEST) = v10-state manifest links + query_eps_nomd.json +
+# pairs_rematch.npz (a) + pairs_hawor.npz (b). Three arms, all launched like the randref 4-node mid
+# (4 x 8 x 2 = global 64, 8K iters, same schedule and MimicDroid-free query set):
+#   rematch    : pairs from the TRACKED trajectories with the re-run matcher, tracked state/action
+#                (control: the re-run matcher is not bit-identical to the released pairs.npz)
+#   hawor_pairs: pairs from the HaWoR trajectories, tracked state/action (RGB-derived pairing only)
+#   hawor_full : pairs from HaWoR AND state/action from HaWoR (EGOVERSE_HUM_ROOT = the HaWoR episode root);
+#                head pose and normalization stats stay those of the recording / v10 manifest.
+_HAWOR_MANIFEST = _os.environ.get("EGOVERSE_HAWOR_MANIFEST", "/mnt/ddn/dataset/egoverse_pairs_v10_hawor")
+_HAWOR_KW = {
+    **_DATASET_KW_V10,
+    "manifest_dir": _HAWOR_MANIFEST,
+    "t5_text_embeddings_path": f"{_HAWOR_MANIFEST}/t5_embeddings.pkl",
+    "action_stats_path": f"{_HAWOR_MANIFEST}/action57_stats.json",
+}
+
+
+def _hawor_4node(name, pairs_name):
+    return _ret_448_experiment(
+        name, EgoVerseRetV3StateDataset, batch_size=2, base_kw=_HAWOR_KW,
+        max_iter=_REB4_ITER, scheduler=_scaled_scheduler(_REB4_ITER),
+        pairs_name=pairs_name, query_episode_set=f"{_HAWOR_MANIFEST}/query_eps_nomd.json")
+
+
+cosmos_predict2p5_2b_egoverse_ret_v3_448_state_rematch_nomd_4node = _hawor_4node(
+    "cosmos_predict2p5_2b_egoverse_ret_v3_448_state_rematch_nomd_4node", "pairs_rematch.npz")
+cosmos_predict2p5_2b_egoverse_ret_v3_448_state_hawor_pairs_nomd_4node = _hawor_4node(
+    "cosmos_predict2p5_2b_egoverse_ret_v3_448_state_hawor_pairs_nomd_4node", "pairs_hawor.npz")
+# identical config; the launcher points EGOVERSE_HUM_ROOT at the HaWoR episode root for this one
+cosmos_predict2p5_2b_egoverse_ret_v3_448_state_hawor_full_nomd_4node = _hawor_4node(
+    "cosmos_predict2p5_2b_egoverse_ret_v3_448_state_hawor_full_nomd_4node", "pairs_hawor.npz")
+
+
 ALL_EGOVERSE_RET_CONFIGS = [
     cosmos_predict2p5_2b_egoverse_ret_v2,
     cosmos_predict2p5_2b_egoverse_ret_v3,
@@ -1437,6 +1474,9 @@ ALL_EGOVERSE_RET_CONFIGS = [
     cosmos_predict2p5_2b_egoverse_ret_v3_448_state_conf50_nomd_15k,
     cosmos_predict2p5_2b_egoverse_ret_v3_448_state_randref_nomd_4node,
     cosmos_predict2p5_2b_egoverse_ret_v3_448_state_conf50_nomd_4node,
+    cosmos_predict2p5_2b_egoverse_ret_v3_448_state_rematch_nomd_4node,
+    cosmos_predict2p5_2b_egoverse_ret_v3_448_state_hawor_pairs_nomd_4node,
+    cosmos_predict2p5_2b_egoverse_ret_v3_448_state_hawor_full_nomd_4node,
     cosmos_predict2p5_2b_egoverse_ret_v3_448_state_conf50_q50_nomd_8k,
     cosmos_predict2p5_2b_egoverse_ret_short_v11,
     cosmos_predict2p5_2b_egoverse_ret_short_state_v11,

@@ -712,7 +712,8 @@ for _tag, _mid, _it in (("conf50", "conf50_nomd_15k", 15_000), ("conf50_q50", "c
 # 4 x 8 GPUs x batch 3 = global 96 = the v6 reference (3 x 8 x 4), so the reference schedule is used
 # unchanged (cycle 8K, warmup 500) and the run stops at the reference's 4K read-out point (384K samples).
 # GR1_BASE_CKPT overrides the warm-start path.
-for _tag in ("randref", "conf50"):
+# rematch / hawor_pairs / hawor_full: the RGB-only-hand mids (docs/egoverse_hawor_rgb.md), same recipe.
+for _tag in ("randref", "conf50", "rematch", "hawor_pairs", "hawor_full"):
     _n = f"cosmos_predict2p5_2b_egoverse_gr1_ret_v6_448_state_{_tag}_4node"
     _e = _copy_conf50.deepcopy(cosmos_predict2p5_2b_egoverse_gr1_ret_v6_448_state_randref_2node)
     _e["checkpoint"]["load_path"] = (
@@ -1812,6 +1813,9 @@ ALL_EGOVERSE_GR1_RET_CONFIGS = [
     cosmos_predict2p5_2b_egoverse_gr1_ret_v6_448_state_randref_q50_2node,  # noqa: F821
     cosmos_predict2p5_2b_egoverse_gr1_ret_v6_448_state_randref_4node,  # noqa: F821
     cosmos_predict2p5_2b_egoverse_gr1_ret_v6_448_state_conf50_4node,  # noqa: F821
+    cosmos_predict2p5_2b_egoverse_gr1_ret_v6_448_state_rematch_4node,  # noqa: F821
+    cosmos_predict2p5_2b_egoverse_gr1_ret_v6_448_state_hawor_pairs_4node,  # noqa: F821
+    cosmos_predict2p5_2b_egoverse_gr1_ret_v6_448_state_hawor_full_4node,  # noqa: F821
     cosmos_predict2p5_2b_egoverse_gr1_ret_v6_2x_448_state,
     cosmos_predict2p5_2b_egoverse_gr1_ret_v6_2x_448_state_base,
     cosmos_predict2p5_2b_egoverse_gr1_ret_v6_448_state_vidonly,

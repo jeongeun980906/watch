@@ -8,6 +8,9 @@
 #                  batch 2/GPU -> global 64, 8K iters (= WATCH v10 state mid, 4 x 8 x 2)
 #   STAGE=conf50   cosmos_predict2p5_2b_egoverse_ret_v3_448_state_conf50_nomd_4node
 #                  batch 2/GPU -> global 64, 8K iters
+#   STAGE=rematch|hawor_pairs|hawor_full
+#                  cosmos_predict2p5_2b_egoverse_ret_v3_448_state_${STAGE}_nomd_4node (RGB-only hands, docs/egoverse_hawor_rgb.md)
+#                  batch 2/GPU -> global 64, 8K iters
 #   STAGE=gr1      cosmos_predict2p5_2b_egoverse_gr1_ret_v6_448_state_${MID}_4node   (GR1 v6 ICL)
 #                  batch 3/GPU -> global 96, 4K iters on the 8K schedule (= reference 3 x 8 x 4, read at 4K)
 #   STAGE=pv0      cosmos_predict2p5_2b_tabletop_sim_5task_plain_end_a20_pv0_${MID}_4node
@@ -16,17 +19,20 @@
 # Required env (all stages): IMAGINAIRE_OUTPUT_ROOT, MASTER_ADDR, NODE_RANK
 #   randref: EGOVERSE_RANDREF_MANIFEST (v10-state manifest + pairs_randref.npz + query_eps_nomd.json), EGOVERSE_HUM_ROOT
 #   conf50:  EGOVERSE_CONF50_MANIFEST  (v10-state manifest + pairs_conf50_full.npz + query_eps_nomd.json), EGOVERSE_HUM_ROOT
-#   gr1:     EGOVERSE_GR1_V6_MANIFEST, EGOVERSE_GR1_HUM_ROOT, GR1_BASE_CKPT (mid .pt: randref or conf50 @ 8K)
-#   pv0:     TABLETOP_RANDREF_DATA, TABLETOP_RANDREF_MANIFEST, TABLETOP_RANDREF_CKPT (mid .pt: randref or conf50 @ 8K)
+#   rematch/hawor_pairs: EGOVERSE_HAWOR_MANIFEST, EGOVERSE_HUM_ROOT (tracked); hawor_full: + EGOVERSE_HAWOR_ROOT
+#   gr1:     EGOVERSE_GR1_V6_MANIFEST, EGOVERSE_GR1_HUM_ROOT, GR1_BASE_CKPT (mid .pt @ 8K of the MID arm)
+#   pv0:     TABLETOP_RANDREF_DATA, TABLETOP_RANDREF_MANIFEST, TABLETOP_RANDREF_CKPT (mid .pt @ 8K of the MID arm)
 # Optional env:
-#   MID (randref)        gr1/pv0: which mid the post-train config is named after (randref | conf50)
+#   MID (randref)        gr1/pv0: which mid the post-train config is named after
+#                        (randref | conf50 | rematch | hawor_pairs | hawor_full)
 #   MASTER_PORT (12341)  NNODES (4)  NPROC_PER_NODE (8)  WANDB_MODE (online)  PY (python)
 #   EXTRA_OVERRIDES      extra hydra overrides appended after the experiment (e.g. "trainer.max_iter=20")
 set -euo pipefail
 
 STAGE=${STAGE:-randref}
 MID=${MID:-randref}
-case "$MID" in randref|conf50) ;; *) echo "MID must be randref or conf50 (got $MID)" >&2; exit 1 ;; esac
+case "$MID" in randref|conf50|rematch|hawor_pairs|hawor_full) ;;
+  *) echo "MID must be randref, conf50, rematch, hawor_pairs or hawor_full (got $MID)" >&2; exit 1 ;; esac
 NNODES=${NNODES:-4}
 NPROC_PER_NODE=${NPROC_PER_NODE:-8}
 MASTER_PORT=${MASTER_PORT:-12341}
@@ -54,6 +60,18 @@ case "$STAGE" in
              state57_stats.json state57_stats_staterobust.json; do need_file "$EGOVERSE_CONF50_MANIFEST/$f"; done
     need_dir "$EGOVERSE_HUM_ROOT"
     export EGOVERSE_CONF50_MANIFEST EGOVERSE_HUM_ROOT ;;
+  rematch|hawor_pairs|hawor_full)
+    EXP=cosmos_predict2p5_2b_egoverse_ret_v3_448_state_${STAGE}_nomd_4node; BATCH_SIZE=2; GBATCH=64
+    : "${EGOVERSE_HAWOR_MANIFEST:?set EGOVERSE_HAWOR_MANIFEST}"; : "${EGOVERSE_HUM_ROOT:?set EGOVERSE_HUM_ROOT}"
+    PF=pairs_hawor.npz; [ "$STAGE" = rematch ] && PF=pairs_rematch.npz
+    for f in windows.npz $PF query_eps_nomd.json t5_embeddings.pkl action57_stats.json \
+             state57_stats.json state57_stats_staterobust.json; do need_file "$EGOVERSE_HAWOR_MANIFEST/$f"; done
+    if [ "$STAGE" = hawor_full ]; then              # state/action from HaWoR: read the HaWoR episode root
+      : "${EGOVERSE_HAWOR_ROOT:?set EGOVERSE_HAWOR_ROOT (hawor_rgb/to_state57.py output)}"
+      need_dir "$EGOVERSE_HAWOR_ROOT"; EGOVERSE_HUM_ROOT=$EGOVERSE_HAWOR_ROOT
+    fi
+    need_dir "$EGOVERSE_HUM_ROOT"
+    export EGOVERSE_HAWOR_MANIFEST EGOVERSE_HUM_ROOT ;;
   gr1)
     EXP=cosmos_predict2p5_2b_egoverse_gr1_ret_v6_448_state_${MID}_4node; BATCH_SIZE=3; GBATCH=96
     : "${EGOVERSE_GR1_V6_MANIFEST:?set EGOVERSE_GR1_V6_MANIFEST}"; : "${EGOVERSE_GR1_HUM_ROOT:?set EGOVERSE_GR1_HUM_ROOT}"
@@ -70,7 +88,7 @@ case "$STAGE" in
              state20_stats_pctl.json; do need_file "$TABLETOP_RANDREF_MANIFEST/$f"; done
     need_dir "$TABLETOP_RANDREF_DATA"; need_file "$TABLETOP_RANDREF_CKPT"
     export TABLETOP_RANDREF_DATA TABLETOP_RANDREF_MANIFEST TABLETOP_RANDREF_CKPT ;;
-  *) echo "STAGE must be randref, conf50, gr1 or pv0 (got $STAGE)" >&2; exit 1 ;;
+  *) echo "STAGE must be randref, conf50, rematch, hawor_pairs, hawor_full, gr1 or pv0 (got $STAGE)" >&2; exit 1 ;;
 esac
 
 cd "$(dirname "$0")/.."   # cosmos_policy repo root
