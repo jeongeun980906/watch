@@ -3,13 +3,41 @@
 state57 layout: head 0:9, left eef 9:18 (pos 9:12, 6D rot 12:18), left hand15 18:33, right eef 33:42
 (pos 33:36, rot 36:42), right hand15 42:57. 6D rot = [R[:,0], R[:,1]]; hand15 = 5 fingertips in the wrist frame.
 action57 (human): pos = R_w(t)^T (p(t+1) - p(t)), rot = 6D of R_w(t)^T R_w(t+1); one row fewer than state.
-Same conversion as responses/yw5w/scripts/rgb_pairing_score.py (hawor_state), on whole episodes.
+Same conversion as responses/yw5w/scripts/rgb_pairing_score.py (hawor_state, HAWOR_SMOOTH=1), on whole episodes.
+Smoothing: the tracked state57 went through EgoVerse's smooth_keypoints (median filter + Savitzky-Golay per channel,
+aria strong 7/15/3, others weak 5/9/2), so the HaWoR joints get the same filter in the world frame before the wrist
+pose and fingertips are derived.
 """
 import numpy as np
+from scipy.signal import medfilt, savgol_filter
 
 TIPS = [4, 8, 12, 16, 20]
 SIDES = {"L": (9, 12, 18), "R": (33, 36, 42)}          # pos, rot, hand15 offsets
 FGRID = np.arange(250, 1601, 25)
+
+
+SMOOTH = {"aria": dict(med_k=7, sg_win=15, sg_poly=3)}      # EgoVerse process_egoverse.py strength per source
+SMOOTH_DEFAULT = dict(med_k=5, sg_win=9, sg_poly=2)
+
+
+def smooth_channels(x, med_k=7, sg_win=15, sg_poly=3):
+    """EgoVerse smooth_poses._smooth_channels (verbatim): median filter then Savitzky-Golay along time, per channel."""
+    T = x.shape[0]
+    if T < 5:
+        return x
+    mk = min(med_k, T if T % 2 == 1 else T - 1)
+    if mk % 2 == 0:
+        mk -= 1
+    out = np.empty_like(x)
+    for c in range(x.shape[1]):
+        v = medfilt(x[:, c], kernel_size=max(mk, 1))
+        w = min(sg_win, T if T % 2 == 1 else T - 1)
+        if w % 2 == 0:
+            w -= 1
+        if w >= sg_poly + 2:
+            v = savgol_filter(v, w, sg_poly)
+        out[:, c] = v
+    return out
 
 
 def rot6(r6):
@@ -49,7 +77,7 @@ def interp_rows(x, ok, n_out, rows):
     return out.reshape((n_out,) + x.shape[1:])
 
 
-def convert(st, h, fit, min_cov=0.3):
+def convert(st, h, fit, min_cov=0.3, source=None, smooth=True):
     """Tracked state57 (N,57) + HaWoR episode output -> HaWoR state57 (N,57), action57 (N-1,57), coverage.
 
     The head pose (0:9) is kept from the recording: the camera is fixed to the head, so HaWoR's camera frame is
@@ -67,12 +95,15 @@ def convert(st, h, fit, min_cov=0.3):
             continue
         J = at_focal(np.nan_to_num(J), np.nan_to_num(tz), f, F0) @ Rc.T + tc             # head frame
         J = interp_rows(J, ok, N, rows)
-        x = J[:, 9] - J[:, 0]; x /= np.linalg.norm(x, axis=1, keepdims=True)
-        z = np.cross(J[:, 5] - J[:, 0], J[:, 17] - J[:, 0]); z /= np.linalg.norm(z, axis=1, keepdims=True)
-        y = np.cross(z, x); Rwh = np.stack([x, y, z], -1)                                   # wrist frame in head frame
-        S[:, p:p + 3] = ph + np.einsum("nij,nj->ni", Rh, J[:, 0])
-        S[:, r:r + 6] = six(np.einsum("nij,njk->nik", Rh, Rwh))
-        S[:, hnd:hnd + 15] = np.einsum("nji,nkj->nki", Rwh, J[:, TIPS] - J[:, :1]).reshape(N, 15)
+        Jw = ph[:, None] + np.einsum("nij,nkj->nki", Rh, J)                                 # world frame
+        if smooth:
+            Jw = smooth_channels(Jw.reshape(N, 63), **SMOOTH.get(source, SMOOTH_DEFAULT)).reshape(N, 21, 3)
+        x = Jw[:, 9] - Jw[:, 0]; x /= np.linalg.norm(x, axis=1, keepdims=True)
+        z = np.cross(Jw[:, 5] - Jw[:, 0], Jw[:, 17] - Jw[:, 0]); z /= np.linalg.norm(z, axis=1, keepdims=True)
+        y = np.cross(z, x); Rw = np.stack([x, y, z], -1)                                    # wrist frame in world
+        S[:, p:p + 3] = Jw[:, 0]
+        S[:, r:r + 6] = six(Rw)
+        S[:, hnd:hnd + 15] = np.einsum("nji,nkj->nki", Rw, Jw[:, TIPS] - Jw[:, :1]).reshape(N, 15)
     A = np.zeros((N - 1, 57))
     for p, r, _ in SIDES.values():
         Rw = rot6(S[:, r:r + 6])

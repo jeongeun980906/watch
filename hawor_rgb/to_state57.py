@@ -37,7 +37,7 @@ def work(ep):
     try:
         st = np.asarray(zarr.open_array(f"{A.state_root}/{ep}/state57/state", mode="r")[:], np.float64)
         h = np.load(f"{A.hawor_out}/{ep}.npz"); f = FITS[SRC[ep]]
-        S, Ac, cov = convert(st, h, f, A.min_cov)
+        S, Ac, cov = convert(st, h, f, A.min_cov, source=SRC[ep], smooth=not A.no_smooth)
         os.makedirs(o, exist_ok=True)
         for g in ("state57", "action57"): zarr.open_group(f"{o}/{g}", mode="a")
         write(f"{o}/state57/state", S); write(f"{o}/action57/action", Ac)
@@ -54,6 +54,7 @@ def main():
     ap = argparse.ArgumentParser()
     for k in ("hawor-out", "cam-fit", "manifest", "state-root", "video-root", "out-root"): ap.add_argument(f"--{k}", required=True)
     ap.add_argument("--procs", type=int, default=32); ap.add_argument("--min-cov", type=float, default=0.3)
+    ap.add_argument("--no-smooth", action="store_true", help="skip the EgoVerse keypoint smoothing (default: smoothed, like tracked state57)")
     A = ap.parse_args()
     W = np.load(f"{A.manifest}/windows.npz", allow_pickle=True)
     SRC = dict(zip(W["ep"].astype(str), W["emb"].astype(str)))

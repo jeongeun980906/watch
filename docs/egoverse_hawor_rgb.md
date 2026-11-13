@@ -162,7 +162,7 @@ episodes per source (fit on one half, error on the other, then refit on all):
 
 ```bash
 cd $WATCH/hawor_rgb
-UVZ="uv run --no-project --python 3.11 --with zarr>=3 --with numpy"
+UVZ="uv run --no-project --python 3.11 --with zarr>=3 --with numpy --with scipy"
 $UVZ python fit_cam.py --hawor-out $WORK/hawor --state-root $V10/episodes --manifest $V10/manifest \
     --out $WORK/cam_fit.json
 ```
@@ -178,7 +178,7 @@ $UVZ python to_state57.py --hawor-out $WORK/hawor --cam-fit $WORK/cam_fit.json -
 export EGOVERSE_HAWOR_ROOT=$WORK/episodes_hawor
 ```
 
-Per episode: camera joints → head frame (fit) → world (recorded head pose) → wrist frame (x: wrist → middle MCP, z:
+Per episode: camera joints → head frame (fit) → world (recorded head pose) → the same keypoint smoothing as the tracked data (EgoVerse `smooth_keypoints`; `--no-smooth` turns it off) → wrist frame (x: wrist → middle MCP, z:
 palm normal) → `state57` (eef position, 6D rotation, 5 fingertips in the wrist frame), and `action57` exactly as
 the data pipeline defines it. Frames without an estimate are interpolated; a hand seen in fewer than 30% of an
 episode's frames is held at its first tracked pose. The video and `meta/` are symlinked, so
@@ -209,7 +209,7 @@ ls $EGOVERSE_HAWOR_ROOT | wc -l      # = ls $EGOVERSE_HUM_ROOT | wc -l
 
 ```bash
 cd $WATCH/hawor_rgb
-UVZ="uv run --no-project --python 3.11 --with zarr>=3 --with numpy"
+UVZ="uv run --no-project --python 3.11 --with zarr>=3 --with numpy --with scipy"
 UVF="uv run --no-project --python 3.11 --with numpy --with faiss-cpu"
 # 4.1 descriptors (CPU, ~15 min with 48 processes)
 $UVZ python build_desc.py --root $EGOVERSE_HAWOR_ROOT --manifest $V10/manifest --out $WORK/desc_hawor   --procs 48
