@@ -2,7 +2,8 @@
 
 This guide replaces WATCH's tracked hand trajectories with hands estimated from the egocentric video alone
 ([HaWoR](https://github.com/ThunderVVV/HaWoR), CVPR 2025), rebuilds the pairs from them, mid-trains WATCH on
-them (one run), and post-trains that mid on GR1 v6 ICL and Tabletop pv0. Every command is in this file, in order.
+them (one run), and post-trains that mid on GR1 v6 ICL and Tabletop pv0, and
+evaluates GR1 (L1-L3). Every command is in this file, in order.
 
 **Starting point:** the cluster setup of the randref / conf50 4-node runs. The data, the training environment,
 the base checkpoint in the HF cache and the post-training data are already there and are reused unchanged.
@@ -28,6 +29,7 @@ run), the window table and task labels, and the normalization statistics of the 
 | 4. pairs from HaWoR | 4 | 1 node (CPU + 1 GPU for T5) | ~1.5 h |
 | 5. mid-training | 5 | one 4-node group | ~23 h |
 | 6. two post-trainings (GR1, pv0) | 6 | two 4-node groups at once | ~7 h |
+| 7. GR1 eval L1-L3; send the pv0 checkpoint | 7 | one 8-GPU node | ~6-7 h |
 
 HaWoR rate: 0.12 s per frame per worker, measured on one RTX 5090 (H100 assumed equal). EgoVerse (human sources of
 v10): 13,445 episodes, 32.4M frames ≈ 1,080 GPU-hours at one worker per GPU. Several workers per GPU (2.3) overlap the
@@ -316,12 +318,55 @@ IMAGINAIRE_OUTPUT_ROOT=/shared/runs/tabletop_pv0_hawor_full_4node \
   python convert_dcp_to_pt.py --tag cosmos_predict2p5_2b_tabletop_sim_5task_plain_end_a20_pv0_hawor_full_4node --iter 8000
 ```
 
-The GR1 checkpoint is evaluated like the randref one (`gr1_local_eval.sh`, `CK` = the 4K `.pt`, `EXP` = the GR1
-experiment name, `MODE=full`), the pv0 checkpoint like the randref pv0 (`tabletop_sim_eval.sh`).
+---
+
+## 7. Evaluation
+
+### 7.1 GR1 v6 ICL: closed-loop eval, L1-L3 (one 8-GPU node)
+
+Setup is [`gr1_eval_rebuttal_4node.md`](gr1_eval_rebuttal_4node.md) §1 unchanged (repos, robocasa venv, data,
+environment variables of §1.4). If it was already set up for the randref eval, reuse it as is. Then, instead of the
+randref checkpoint:
+
+```bash
+export HAWOR_CK=/shared/runs/gr1_posttrain_v6_448_state_hawor_full_4node/cosmos_policy/cosmos_v2_finetune/cosmos_predict2p5_2b_egoverse_gr1_ret_v6_448_state_hawor_full_4node/checkpoints/model_000004000.pt
+export HAWOR_EXP=cosmos_predict2p5_2b_egoverse_gr1_ret_v6_448_state_hawor_full_4node
+export RES=$ROOT/gr1_hawor_eval && mkdir -p $RES
+```
+
+Smoke test (one episode, ~5 min), same pass criteria as §1.5 of the eval guide; delete `$RES/smoke` afterwards:
+
+```bash
+CK=$HAWOR_CK EXP=$HAWOR_EXP OUT=$RES/smoke MODE=full EPISODES=1 \
+ONLY_TASKS="PnPSinkToCabinetL2" ONLY_DEMOS="1" GPUS="0" ./gr1_local_eval.sh
+```
+
+Launch all L1-L3 atoms (`MODE=full`: 12 seen-task atoms + 25 L2/L3 atoms = 37 atoms, 10 episodes each):
+
+```bash
+CK=$HAWOR_CK EXP=$HAWOR_EXP OUT=$RES/gr1_v6_hawor_full_4node_4000_full MODE=full \
+GPUS="0 1 2 3 4 5 6 7" PORT0=8700 MPORT0=29600 \
+  nohup ./gr1_local_eval.sh > $RES/hawor_full.log 2>&1 &
+```
+
+Rough time: ~6-7 h on 8 GPUs. A failed atom (`ATOM FAILED`) is re-run as in §2.2 of the eval guide.
+
+**Check:** the run log prints `[eval] mode=full  atoms=37`, `[eval] exp=` / `[eval] ckpt=` are the HaWoR ones, and
+§3 of the eval guide (f3r2 spawn, Close\* at `x/10`, no `SERVER DIED`).
+
+**Send back:** `summary.txt` and `logs/` from `$RES/gr1_v6_hawor_full_4node_4000_full`, and `$RES/hawor_full.log`.
+
+### 7.2 Tabletop pv0: send the checkpoint
+
+The pv0 checkpoint is evaluated locally. Send the 8K `.pt` (~3.9 GB):
+
+```
+/shared/runs/tabletop_pv0_hawor_full_4node/cosmos_policy/cosmos_v2_finetune/cosmos_predict2p5_2b_tabletop_sim_5task_plain_end_a20_pv0_hawor_full_4node/checkpoints/model_000008000.pt
+```
 
 ---
 
-## 7. What to check
+## 8. What to check
 
 | after | check |
 |---|---|
