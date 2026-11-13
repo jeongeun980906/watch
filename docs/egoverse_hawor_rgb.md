@@ -20,7 +20,8 @@ the base checkpoint in the HF cache and the post-training data are already there
 Compare `hawor_pairs` and `hawor_full` with `rematch`, not with the released WATCH mid. The matcher is the
 original code (`71_3s.py`), but its inputs are rebuilt from `state57` (section 4), and its output differs from the
 released `pairs.npz`: on 2,000 training queries the reference sets overlap with Jaccard 0.26, the top-1 agrees for
-35%, and 40% of the cross-source references are recovered.
+35%, and 40% of the cross-source references are recovered. The scoring step is reproduced exactly; the gap comes
+from the shortlist descriptors (section 4.5).
 
 Kept from the recording in every arm: the **head pose** (the camera is fixed to the head; HaWoR's SLAM stage is not
 run), the window table and task labels, and the normalization statistics of the v10 manifest.
@@ -247,6 +248,40 @@ query-set check.
 **Check:** both runs print `query set query_eps_nomd.json: 13295/13295 episodes present`. `rematch`: ~14
 refs/query, ~6 cross-source, 90%+ of rows with a cross-source reference, Jaccard ~0.26 with the released pairs.
 `hawor`: similar counts, a lower Jaccard.
+
+### 4.5 How close the re-run matcher is to the released `pairs.npz`
+
+Measured on the tracked inputs (`responses/jcv5/scripts/match_71_local.py`, `diag_match.py`, `trace_prefilter.py`):
+
+- **Scoring is exact.** For the released references, the local DTW + handedness score equals the released
+  `match_dist` (median relative error 7e-8 over 40 queries, p90 1e-7). `desc_v9` (V9, left-hand share) is the
+  original descriptor.
+- **The buckets are exact.** No released reference is lost to the fine/coarse task bucket or the source split.
+- **The shortlist is not.** Where the missing released references drop out (200 training queries):
+
+| stage | cross-source refs | same-source refs |
+|---|---|---|
+| recovered | 38% | 36% |
+| outside the top 40 by M/X distance (shortlist descriptor) | 48% | 7% |
+| inside the top 40, lost at the DTW cut (top 8 same / `SIM_RATIO` / `CROSS_MAX` 7 cross) | 14% | 20% |
+| episode passes the text gate but falls after the 400-window cap (episode order by text cosine) | – | 37% |
+
+So the difference is in M, E and G (built here from smoothed `state57`, originally from the raw keypoints) and in
+the episode order from the text embedding. Rebuilding M/E/G from the raw R2 arrays with the original smoothing
+raises the Jaccard only to 0.28 (top-1 0.36, cross recall 0.38). That is why every arm is compared with `rematch`,
+which uses the same rebuilt inputs, rather than with the released pairs.
+
+Same-source gate variants (2,000 queries, Jaccard / top-1 / same-source recall):
+
+| gate | Jaccard | top-1 | same recall |
+|---|---|---|---|
+| T5 text of `task_description`, cos ≥ 0.80 (used here) | 0.257 | 0.350 | 0.324 |
+| T5 text of `task_name` | 0.136 | 0.181 | 0.003 |
+| same fine class, episodes | 0.151 | 0.203 | 0.036 |
+| same fine class, M-L2 shortlist | 0.122 | 0.065 | 0.034 |
+
+The text gate on `task_description` is the only variant that recovers the released same-source references, so
+it is kept. Cross-source references always use the fine-class bucket (coarse fallback).
 
 ---
 
