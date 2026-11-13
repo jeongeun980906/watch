@@ -1,29 +1,27 @@
 # RGB-only hand trajectories: HaWoR → pairs → mid-training → post-training (4-node groups)
 
 This guide replaces WATCH's tracked hand trajectories with hands estimated from the egocentric video alone
-([HaWoR](https://github.com/ThunderVVV/HaWoR), CVPR 2025), rebuilds the pairs from them, mid-trains, and
-post-trains each mid on GR1 v6 ICL and Tabletop pv0. Every command is in this file, in order.
+([HaWoR](https://github.com/ThunderVVV/HaWoR), CVPR 2025), rebuilds the pairs from them, mid-trains WATCH on
+them (one run), and post-trains that mid on GR1 v6 ICL and Tabletop pv0. Every command is in this file, in order.
 
 **Starting point:** the cluster setup of the randref / conf50 4-node runs. The data, the training environment,
 the base checkpoint in the HF cache and the post-training data are already there and are reused unchanged.
 
 ## 0. Overview
 
-### 0.1 The three arms
+### 0.1 The run
 
-| arm (`STAGE` / `MID`) | pairs from | training state/action from | isolates |
-|---|---|---|---|
-| `rematch` | tracked trajectories, re-run matcher | tracked | control for the re-run matcher |
-| `hawor_pairs` | HaWoR trajectories | tracked | RGB-derived **pairing** |
-| `hawor_full` | HaWoR trajectories | HaWoR | RGB-derived pairing **and** training labels |
+One arm, WATCH as in the paper with every hand trajectory taken from RGB (`STAGE=hawor_full`): the pairs are
+matched on HaWoR trajectories, and the mid trains on HaWoR `state57`/`action57`. It is compared with the released
+WATCH mid and its post-trains.
 
-Compare `hawor_pairs` and `hawor_full` with `rematch`, not with the released WATCH mid. The matcher is the
-original code (`71_3s.py`), but its inputs are rebuilt from `state57` (section 4), and its output differs from the
-released `pairs.npz`: on 2,000 training queries the reference sets overlap with Jaccard 0.26, the top-1 agrees for
-35%, and 40% of the cross-source references are recovered. The scoring step is reproduced exactly; the gap comes
-from the shortlist descriptors (section 4.5).
+The matcher is the original code (`71_3s.py`), but its shortlist inputs are rebuilt from `state57`, so even on the
+tracked trajectories it does not return the released `pairs.npz` exactly: on 2,000 training queries the reference
+sets overlap with Jaccard 0.26, the top-1 agrees for 35%, and 40% of the cross-source references are recovered.
+The scoring step and the task buckets are exact; the gap is in the shortlist descriptors (section 4.5). The
+difference to the released mid therefore mixes HaWoR with this matcher gap.
 
-Kept from the recording in every arm: the **head pose** (the camera is fixed to the head; HaWoR's SLAM stage is not
+Kept from the recording: the **head pose** (the camera is fixed to the head; HaWoR's SLAM stage is not
 run), the window table and task labels, and the normalization statistics of the v10 manifest.
 
 ### 0.2 Steps and time
@@ -33,9 +31,9 @@ run), the window table and task labels, and the normalization statistics of the 
 | 1. HaWoR environment | 1 | once, shared filesystem | ~30 min |
 | 2. HaWoR on every episode | 2 | **any number of nodes**, elastic | ~34 h stride 1, ~17 h stride 2 (17 / 8.5 h; 8.5 / 4.3 h) |
 | 3. camera fit + `state57`/`action57` from HaWoR | 3 | 1 node, CPU | ~1 h |
-| 4. pairs for `rematch` and `hawor` | 4 | 1 node (CPU + 1 GPU for T5) | ~2-3 h |
-| 5. three mid-trainings | 5 | three 4-node groups at once | ~23 h |
-| 6. six post-trainings | 6 | six 4-node groups at once | ~7 h |
+| 4. pairs from HaWoR | 4 | 1 node (CPU + 1 GPU for T5) | ~1.5 h |
+| 5. mid-training | 5 | one 4-node group | ~23 h |
+| 6. two post-trainings (GR1, pv0) | 6 | two 4-node groups at once | ~7 h |
 
 HaWoR rate: 0.12 s per frame per worker, measured on one RTX 5090 (H100 assumed equal). EgoVerse (human sources of
 v10): 13,445 episodes, 32.4M frames ≈ 1,080 GPU-hours at one worker per GPU. Several workers per GPU (2.3) overlap the
@@ -191,7 +189,7 @@ episode's frames is held at its first tracked pose. The video and `meta/` are sy
 `$EGOVERSE_HAWOR_ROOT` is a drop-in `EGOVERSE_HUM_ROOT`.
 
 Episodes without HaWoR output (no video, or failed) are not in `$EGOVERSE_HAWOR_ROOT`. Link their tracked
-directories in so that `hawor_full` can read every episode it uses:
+directories in so that training can read every episode it uses:
 
 ```bash
 for d in $EGOVERSE_HUM_ROOT/*/; do e=$(basename $d); [ -e $EGOVERSE_HAWOR_ROOT/$e ] || ln -s $d $EGOVERSE_HAWOR_ROOT/$e; done
@@ -202,9 +200,8 @@ ls $EGOVERSE_HAWOR_ROOT | wc -l      # = ls $EGOVERSE_HUM_ROOT | wc -l
 
 ---
 
-## 4. Pairs: `pairs_rematch.npz` (tracked) and `pairs_hawor.npz` (HaWoR)
-
-The same code runs on both episode roots. The matcher is `71_3s.py`, the one that produced `egoverse_pairs_v10`
+## 4. Pairs: `pairs_hawor.npz`
+ The matcher is `71_3s.py`, the one that produced `egoverse_pairs_v10`
 (`hawor_rgb/match.py`, verbatim `match()`); its inputs are rebuilt from `state57`:
 
 | input | script | original |
@@ -218,24 +215,19 @@ The same code runs on both episode roots. The matcher is `71_3s.py`, the one tha
 cd $WATCH/hawor_rgb
 UVZ="uv run --no-project --python 3.11 --with zarr>=3 --with numpy"
 UVF="uv run --no-project --python 3.11 --with numpy --with faiss-cpu"
-# 4.1 descriptors (CPU, ~15 min each with 48 processes)
-$UVZ python build_desc.py --root $V10/episodes        --manifest $V10/manifest --out $WORK/desc_tracked --procs 48
+# 4.1 descriptors (CPU, ~15 min with 48 processes)
 $UVZ python build_desc.py --root $EGOVERSE_HAWOR_ROOT --manifest $V10/manifest --out $WORK/desc_hawor   --procs 48
 # 4.2 episode text embeddings (1 GPU, ~2 min once T5-11B is cached)
 $WATCH/.venv/bin/python t5_text.py --root $V10/episodes --out $WORK/temb.npz
-# 4.3 matcher: 1.04M queries per set, ~1 h on one node with 48 processes
-for SET in tracked hawor; do
-  $UVF python match.py --desc $WORK/desc_$SET --temb $WORK/temb.npz --manifest $V10/manifest \
-      --out $WORK/pairs_${SET}_0.npz --shard 0/1 --procs 48
-done
+# 4.3 matcher: 1.04M queries, ~1 h on one node with 48 processes
+$UVF python match.py --desc $WORK/desc_hawor --temb $WORK/temb.npz --manifest $V10/manifest \
+    --out $WORK/pairs_hawor_0.npz --shard 0/1 --procs 48
 ```
 
-To spread 4.3 over n nodes, run `--shard i/n --out $WORK/pairs_${SET}_$i.npz` on node i (i = 0..n-1).
+To spread 4.3 over n nodes, run `--shard i/n --out $WORK/pairs_hawor_$i.npz` on node i (i = 0..n-1).
 
 ```bash
-# 4.4 one manifest dir: v10 manifest links + query_eps_nomd.json + the two pairs files
-python3 finalize_manifest.py --shards "$WORK/pairs_tracked_*.npz" --base $V10/manifest --query-set $QSET \
-    --name rematch --out $WORK/manifest
+# 4.4 manifest dir: v10 manifest links + query_eps_nomd.json + pairs_hawor.npz
 python3 finalize_manifest.py --shards "$WORK/pairs_hawor_*.npz"   --base $V10/manifest --query-set $QSET \
     --name hawor   --out $WORK/manifest
 export EGOVERSE_HAWOR_MANIFEST=$WORK/manifest
@@ -245,13 +237,13 @@ export EGOVERSE_HAWOR_MANIFEST=$WORK/manifest
 references), and prints refs per query, the cross-source share, the overlap with the released `pairs.npz`, and the
 query-set check.
 
-**Check:** both runs print `query set query_eps_nomd.json: 13295/13295 episodes present`. `rematch`: ~14
-refs/query, ~6 cross-source, 90%+ of rows with a cross-source reference, Jaccard ~0.26 with the released pairs.
-`hawor`: similar counts, a lower Jaccard.
+**Check:** it prints `query set query_eps_nomd.json: 13295/13295 episodes present`, ~14 refs/query, ~6
+cross-source, 90%+ of rows with a cross-source reference. The Jaccard with the released pairs is below the 0.26
+of the tracked re-run (section 4.5).
 
 ### 4.5 How close the re-run matcher is to the released `pairs.npz`
 
-Measured on the tracked inputs (`responses/jcv5/scripts/match_71_local.py`, `diag_match.py`, `trace_prefilter.py`):
+Measured once on the tracked inputs (not part of the run; `responses/jcv5/scripts/match_71_local.py`, `diag_match.py`, `trace_prefilter.py`):
 
 - **Scoring is exact.** For the released references, the local DTW + handedness score equals the released
   `match_dist` (median relative error 7e-8 over 40 queries, p90 1e-7). `desc_v9` (V9, left-hand share) is the
@@ -268,8 +260,8 @@ Measured on the tracked inputs (`responses/jcv5/scripts/match_71_local.py`, `dia
 
 So the difference is in M, E and G (built here from smoothed `state57`, originally from the raw keypoints) and in
 the episode order from the text embedding. Rebuilding M/E/G from the raw R2 arrays with the original smoothing
-raises the Jaccard only to 0.28 (top-1 0.36, cross recall 0.38). That is why every arm is compared with `rematch`,
-which uses the same rebuilt inputs, rather than with the released pairs.
+raises the Jaccard only to 0.28 (top-1 0.36, cross recall 0.38). A tracked re-run (`build_desc.py --root
+$V10/episodes`, same 4.2-4.4) would isolate HaWoR from this gap, at the cost of a second mid.
 
 Same-source gate variants (2,000 queries, Jaccard / top-1 / same-source recall):
 
@@ -285,121 +277,88 @@ it is kept. Cross-source references always use the fine-class bucket (coarse fal
 
 ---
 
-## 5. Mid-training: three arms, three 4-node groups at once
+## 5. Mid-training (one 4-node group)
 
-Each arm is the WATCH v10 state mid launched like the randref 4-node mid: 4 nodes x 8 GPUs x batch 2 = global 64,
-8K iterations, the reference schedule (cycle 50K, warmup 500), MimicDroid-free query set. Only the pairs file and,
-for `hawor_full`, the episode root differ.
+The WATCH v10 state mid, launched like the randref 4-node mid: 4 nodes x 8 GPUs x batch 2 = global 64, 8K
+iterations, the reference schedule (cycle 50K, warmup 500), MimicDroid-free query set. Only the pairs file
+(`pairs_hawor.npz`) and the episode root (`$EGOVERSE_HAWOR_ROOT`) differ from WATCH.
 
-| group | run | experiment | `MASTER_PORT` |
-|---|---|---|---|
-| A | `rematch` mid | `cosmos_predict2p5_2b_egoverse_ret_v3_448_state_rematch_nomd_4node` | 12341 |
-| B | `hawor_pairs` mid | `cosmos_predict2p5_2b_egoverse_ret_v3_448_state_hawor_pairs_nomd_4node` | 12342 |
-| C | `hawor_full` mid | `cosmos_predict2p5_2b_egoverse_ret_v3_448_state_hawor_full_nomd_4node` | 12343 |
-
-Each group: its 4 nodes run the same command with `NODE_RANK=0..3`, `MASTER_ADDR` = the group's node 0, and the
-group's own `MASTER_PORT` and `IMAGINAIRE_OUTPUT_ROOT` (on storage the 4 nodes share; never shared between groups).
-
-Common env on every node:
+Experiment: `cosmos_predict2p5_2b_egoverse_ret_v3_448_state_hawor_full_nomd_4node`. The 4 nodes run the same
+command with `NODE_RANK=0..3`, `MASTER_ADDR` = node 0, and an `IMAGINAIRE_OUTPUT_ROOT` on storage the 4 nodes share.
 
 ```bash
 cd $WATCH && source .venv/bin/activate
 export HF_HOME WANDB_MODE=online            # or offline / disabled
-export EGOVERSE_HAWOR_MANIFEST=$WORK/manifest EGOVERSE_HUM_ROOT=$ROOT/egoverse-video
+export EGOVERSE_HAWOR_MANIFEST=$WORK/manifest EGOVERSE_HUM_ROOT=$ROOT/egoverse-video EGOVERSE_HAWOR_ROOT=$WORK/episodes_hawor
 ```
 
-### 5.1 Short test (once, on one group)
+### 5.1 Short test
 
 ```bash
 IMAGINAIRE_OUTPUT_ROOT=/shared/runs/hawor_smoke EXTRA_OVERRIDES="trainer.max_iter=20 checkpoint.save_iter=20" \
-  MASTER_ADDR=<node 0> MASTER_PORT=12341 STAGE=hawor_pairs NODE_RANK=<0..3> bash scripts/train_egoverse_rebuttal_4node.sh
+  MASTER_ADDR=<node 0> MASTER_PORT=12343 STAGE=hawor_full NODE_RANK=<0..3> bash scripts/train_egoverse_rebuttal_4node.sh
 rm -rf /shared/runs/hawor_smoke
 ```
 
 ### 5.2 Launch
 
 ```bash
-# group A
-MASTER_ADDR=<A node 0> MASTER_PORT=12341 IMAGINAIRE_OUTPUT_ROOT=/shared/runs/egoverse_ret_v3_448_state_rematch_4node \
-  STAGE=rematch NODE_RANK=<0..3> bash scripts/train_egoverse_rebuttal_4node.sh
-# group B
-MASTER_ADDR=<B node 0> MASTER_PORT=12342 IMAGINAIRE_OUTPUT_ROOT=/shared/runs/egoverse_ret_v3_448_state_hawor_pairs_4node \
-  STAGE=hawor_pairs NODE_RANK=<0..3> bash scripts/train_egoverse_rebuttal_4node.sh
-# group C: state/action from HaWoR (the launcher sets EGOVERSE_HUM_ROOT=$EGOVERSE_HAWOR_ROOT)
-MASTER_ADDR=<C node 0> MASTER_PORT=12343 IMAGINAIRE_OUTPUT_ROOT=/shared/runs/egoverse_ret_v3_448_state_hawor_full_4node \
-  EGOVERSE_HAWOR_ROOT=$WORK/episodes_hawor STAGE=hawor_full NODE_RANK=<0..3> bash scripts/train_egoverse_rebuttal_4node.sh
+# the launcher sets EGOVERSE_HUM_ROOT=$EGOVERSE_HAWOR_ROOT for this stage
+MASTER_ADDR=<node 0> MASTER_PORT=12343 IMAGINAIRE_OUTPUT_ROOT=/shared/runs/egoverse_ret_v3_448_state_hawor_full_4node \
+  STAGE=hawor_full NODE_RANK=<0..3> bash scripts/train_egoverse_rebuttal_4node.sh
 ```
 
 Resume after a crash: launch again with the same `IMAGINAIRE_OUTPUT_ROOT` and node count.
 
-### 5.3 Convert the mids to `.pt`
+### 5.3 Convert the mid to `.pt`
 
-After each mid has written `iter_000008000`:
+After `iter_000008000`:
 
 ```bash
-for m in rematch hawor_pairs hawor_full; do
-  IMAGINAIRE_OUTPUT_ROOT=/shared/runs/egoverse_ret_v3_448_state_${m}_4node \
-    python convert_dcp_to_pt.py --tag cosmos_predict2p5_2b_egoverse_ret_v3_448_state_${m}_nomd_4node --iter 8000
-done
-mid() { echo /shared/runs/egoverse_ret_v3_448_state_$1_4node/cosmos_policy/cosmos_v2_finetune/cosmos_predict2p5_2b_egoverse_ret_v3_448_state_$1_nomd_4node/checkpoints/model_000008000.pt; }
-ls -la $(mid rematch) $(mid hawor_pairs) $(mid hawor_full)      # ~3.9 GB each
+IMAGINAIRE_OUTPUT_ROOT=/shared/runs/egoverse_ret_v3_448_state_hawor_full_4node \
+  python convert_dcp_to_pt.py --tag cosmos_predict2p5_2b_egoverse_ret_v3_448_state_hawor_full_nomd_4node --iter 8000
+MIDPT=/shared/runs/egoverse_ret_v3_448_state_hawor_full_4node/cosmos_policy/cosmos_v2_finetune/cosmos_predict2p5_2b_egoverse_ret_v3_448_state_hawor_full_nomd_4node/checkpoints/model_000008000.pt
+ls -la $MIDPT      # ~3.9 GB
 ```
 
 ---
 
-## 6. Post-training: GR1 v6 ICL and Tabletop pv0 from each mid (six 4-node groups at once)
+## 6. Post-training: GR1 v6 ICL and Tabletop pv0 (two 4-node groups at once)
 
-Same recipe as the randref/conf50 post-trains; `MID` names the arm, the warm start is the arm's 8K `.pt`.
+Same recipe as the randref/conf50 post-trains, warm-started from `$MIDPT`.
 
 | post-train | experiment | 4 nodes | iterations | read at |
 |---|---|---|---|---|
-| GR1 v6 ICL | `cosmos_predict2p5_2b_egoverse_gr1_ret_v6_448_state_${MID}_4node` | batch 3/GPU = global 96 | 4K on the 8K schedule | 4K |
-| Tabletop pv0 | `cosmos_predict2p5_2b_tabletop_sim_5task_plain_end_a20_pv0_${MID}_4node` | batch 12/GPU = global 384 | 8K | 8K |
-
-Common env on every node (the post-training data of the randref runs):
+| GR1 v6 ICL | `cosmos_predict2p5_2b_egoverse_gr1_ret_v6_448_state_hawor_full_4node` | batch 3/GPU = global 96 | 4K on the 8K schedule | 4K |
+| Tabletop pv0 | `cosmos_predict2p5_2b_tabletop_sim_5task_plain_end_a20_pv0_hawor_full_4node` | batch 12/GPU = global 384 | 8K | 8K |
 
 ```bash
 cd $WATCH && source .venv/bin/activate && export HF_HOME WANDB_MODE=online
 export EGOVERSE_GR1_V6_MANIFEST=$ROOT/mimicdroid-gr1/manifest EGOVERSE_GR1_HUM_ROOT=$ROOT/mimicdroid-gr1/egoverse
 export TABLETOP_RANDREF_DATA=$ROOT/tabletopsim-watch/data TABLETOP_RANDREF_MANIFEST=$ROOT/tabletopsim-watch/manifest
+# group A: GR1 v6 ICL
+MASTER_ADDR=<A node 0> MASTER_PORT=12344 GR1_BASE_CKPT=$MIDPT \
+  IMAGINAIRE_OUTPUT_ROOT=/shared/runs/gr1_posttrain_v6_448_state_hawor_full_4node \
+  STAGE=gr1 MID=hawor_full NODE_RANK=<0..3> bash scripts/train_egoverse_rebuttal_4node.sh
+# group B: Tabletop pv0
+MASTER_ADDR=<B node 0> MASTER_PORT=12345 TABLETOP_RANDREF_CKPT=$MIDPT \
+  IMAGINAIRE_OUTPUT_ROOT=/shared/runs/tabletop_pv0_hawor_full_4node \
+  STAGE=pv0 MID=hawor_full NODE_RANK=<0..3> bash scripts/train_egoverse_rebuttal_4node.sh
 ```
 
-| group | run | `MASTER_PORT` |
-|---|---|---|
-| A | GR1 from `rematch` | 12341 |
-| B | GR1 from `hawor_pairs` | 12342 |
-| C | GR1 from `hawor_full` | 12343 |
-| D | pv0 from `rematch` | 12344 |
-| E | pv0 from `hawor_pairs` | 12345 |
-| F | pv0 from `hawor_full` | 12346 |
-
-```bash
-# groups A-C: GR1 v6 ICL  (m = rematch | hawor_pairs | hawor_full, one per group)
-MASTER_ADDR=<group node 0> MASTER_PORT=<port> GR1_BASE_CKPT=$(mid $m) \
-  IMAGINAIRE_OUTPUT_ROOT=/shared/runs/gr1_posttrain_v6_448_state_${m}_4node \
-  STAGE=gr1 MID=$m NODE_RANK=<0..3> bash scripts/train_egoverse_rebuttal_4node.sh
-# groups D-F: Tabletop pv0
-MASTER_ADDR=<group node 0> MASTER_PORT=<port> TABLETOP_RANDREF_CKPT=$(mid $m) \
-  IMAGINAIRE_OUTPUT_ROOT=/shared/runs/tabletop_pv0_${m}_4node \
-  STAGE=pv0 MID=$m NODE_RANK=<0..3> bash scripts/train_egoverse_rebuttal_4node.sh
-```
-
-`MID` selects the config name; the warm start is the `.pt` in `GR1_BASE_CKPT` / `TABLETOP_RANDREF_CKPT`. Check that
-the two agree (the log prints the experiment and the checkpoint it loads).
+The log prints the experiment and the checkpoint it loads; check that it is `$MIDPT`.
 
 Convert for evaluation:
 
 ```bash
-for m in rematch hawor_pairs hawor_full; do
-  IMAGINAIRE_OUTPUT_ROOT=/shared/runs/gr1_posttrain_v6_448_state_${m}_4node \
-    python convert_dcp_to_pt.py --tag cosmos_predict2p5_2b_egoverse_gr1_ret_v6_448_state_${m}_4node --iter 4000
-  IMAGINAIRE_OUTPUT_ROOT=/shared/runs/tabletop_pv0_${m}_4node \
-    python convert_dcp_to_pt.py --tag cosmos_predict2p5_2b_tabletop_sim_5task_plain_end_a20_pv0_${m}_4node --iter 8000
-done
+IMAGINAIRE_OUTPUT_ROOT=/shared/runs/gr1_posttrain_v6_448_state_hawor_full_4node \
+  python convert_dcp_to_pt.py --tag cosmos_predict2p5_2b_egoverse_gr1_ret_v6_448_state_hawor_full_4node --iter 4000
+IMAGINAIRE_OUTPUT_ROOT=/shared/runs/tabletop_pv0_hawor_full_4node \
+  python convert_dcp_to_pt.py --tag cosmos_predict2p5_2b_tabletop_sim_5task_plain_end_a20_pv0_hawor_full_4node --iter 8000
 ```
 
-The GR1 checkpoints are evaluated like the randref one (`gr1_local_eval.sh`, `CK` = the 4K `.pt`, `EXP` = the GR1
-experiment name, `MODE=full`), the pv0 checkpoints like the randref pv0 (`tabletop_sim_eval.sh`).
+The GR1 checkpoint is evaluated like the randref one (`gr1_local_eval.sh`, `CK` = the 4K `.pt`, `EXP` = the GR1
+experiment name, `MODE=full`), the pv0 checkpoint like the randref pv0 (`tabletop_sim_eval.sh`).
 
 ---
 
@@ -410,9 +369,9 @@ experiment name, `MODE=full`), the pv0 checkpoints like the randref pv0 (`tablet
 | 2 | `hawor_status.py`: `13445/13445 done, 0 failed` (or every failure explained); worker logs mostly `cov` ≥ 0.8 per hand |
 | 3.1 | held-out wrist error median below ~60 mm per source; f in 250-350 |
 | 3.2 | `converted N, failed 0`; mean coverage L/R ≥ 0.85; `$EGOVERSE_HAWOR_ROOT` has as many entries as `$EGOVERSE_HUM_ROOT` |
-| 4 | both `finalize_manifest.py` runs: full query set present; `rematch` overlaps the released pairs clearly more than `hawor` |
+| 4 | `finalize_manifest.py`: full query set present; ~14 refs/query, ~6 cross-source |
 | 5, 6 | pod log `$IMAGINAIRE_OUTPUT_ROOT/pod_logs/<stage>_<mid>_node0.log`: `Training with 32 GPUs.`, `global batch 64 / 96 / 384` (no `WARNING: global batch`) |
-| 5 | dataset lines: `query_episode_set=query_eps_nomd.json: kept 13295/...`, the same `pairs=` count for the three arms, `ROBUST state norm ... state57_stats_staterobust.json`; `hawor_full` reads from `$EGOVERSE_HAWOR_ROOT` (first launcher lines) |
+| 5 | dataset lines: `query_episode_set=query_eps_nomd.json: kept 13295/...`, `ROBUST state norm ... state57_stats_staterobust.json`; episodes read from `$EGOVERSE_HAWOR_ROOT` (first launcher lines) |
 | 5, 6 | LR: mid warmup 500 to 1e-4, 0.894e-4 at 8K; GR1 0.673e-4 at 4K; pv0 warmup 200, 0.5e-4 at 8K. Loss finite, iteration time stable |
 | 6 | post-trains load the mid `.pt` with no missing or unexpected keys |
 
@@ -431,6 +390,6 @@ experiment name, `MODE=full`), the pv0 checkpoints like the randref pv0 (`tablet
 | `hawor_rgb/t5_text.py` | episode text embeddings (T5-11B) |
 | `hawor_rgb/match.py`, `lang_taxonomy.py` | 71_3s matcher, shardable |
 | `hawor_rgb/finalize_manifest.py` | shards → `pairs_<name>.npz` + manifest dir |
-| `cosmos_policy/config/experiment/egoverse_ret_experiment_configs.py` | the three mid experiments |
-| `cosmos_policy/config/experiment/egoverse_gr1_ret_experiment_configs.py`, `tabletop_sim_experiment_configs.py` | GR1 / pv0 post-trains for `MID` = each arm |
-| `scripts/train_egoverse_rebuttal_4node.sh` | `STAGE=rematch / hawor_pairs / hawor_full` (mids), `STAGE=gr1 / pv0` with `MID=<arm>` |
+| `cosmos_policy/config/experiment/egoverse_ret_experiment_configs.py` | the mid experiment (`hawor_full`; `rematch` / `hawor_pairs` are defined but not run) |
+| `cosmos_policy/config/experiment/egoverse_gr1_ret_experiment_configs.py`, `tabletop_sim_experiment_configs.py` | GR1 / pv0 post-trains for `MID=hawor_full` |
+| `scripts/train_egoverse_rebuttal_4node.sh` | `STAGE=hawor_full` (mid), `STAGE=gr1 / pv0` with `MID=hawor_full` |
