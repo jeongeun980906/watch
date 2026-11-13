@@ -37,7 +37,7 @@ def work(ep):
     try:
         st = np.asarray(zarr.open_array(f"{A.state_root}/{ep}/state57/state", mode="r")[:], np.float64)
         h = np.load(f"{A.hawor_out}/{ep}.npz"); f = FITS[SRC[ep]]
-        S, Ac, cov = convert(st, h, f, A.min_cov, source=SRC[ep], smooth=not A.no_smooth)
+        S, Ac, cov = convert(st, h, f, A.min_cov, source=SRC[ep], smooth=not A.no_smooth, wrist_rot=WROT[SRC[ep]])
         os.makedirs(o, exist_ok=True)
         for g in ("state57", "action57"): zarr.open_group(f"{o}/{g}", mode="a")
         write(f"{o}/state57/state", S); write(f"{o}/action57/action", Ac)
@@ -50,7 +50,7 @@ def work(ep):
 
 
 def main():
-    global A, FITS, SRC
+    global A, FITS, SRC, WROT
     ap = argparse.ArgumentParser()
     for k in ("hawor-out", "cam-fit", "manifest", "state-root", "video-root", "out-root"): ap.add_argument(f"--{k}", required=True)
     ap.add_argument("--procs", type=int, default=32); ap.add_argument("--min-cov", type=float, default=0.3)
@@ -58,7 +58,11 @@ def main():
     A = ap.parse_args()
     W = np.load(f"{A.manifest}/windows.npz", allow_pickle=True)
     SRC = dict(zip(W["ep"].astype(str), W["emb"].astype(str)))
-    FITS = {s: (v["f"], np.array(v["R"]), np.array(v["t"])) for s, v in json.load(open(A.cam_fit)).items()}
+    CF = json.load(open(A.cam_fit))
+    FITS = {s: (v["f"], np.array(v["R"]), np.array(v["t"])) for s, v in CF.items()}
+    WROT = {s: {k: np.array(m) for k, m in v["wrist_rot"].items()} for s, v in CF.items() if "wrist_rot" in v}
+    missing = [s for s in FITS if s not in WROT]
+    if missing: raise SystemExit(f"cam_fit.json has no wrist_rot for {missing}: re-run fit_cam.py (this version)")
     eps = sorted(e for e in (os.path.basename(p)[:-4] for p in glob.glob(f"{A.hawor_out}/*.npz")) if SRC.get(e) in FITS)
     os.makedirs(A.out_root, exist_ok=True); cov, err = {}, {}
     with Pool(A.procs) as p:

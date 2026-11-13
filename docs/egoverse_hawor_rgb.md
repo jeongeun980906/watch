@@ -170,6 +170,8 @@ $UVZ python fit_cam.py --hawor-out $WORK/hawor --state-root $V10/episodes --mani
 Expected (from the 56-clip check of the rebuttal): f ≈ 325 (aria), 250 (scale), 275 (MECKA); held-out wrist error
 median 40-55 mm. It can run as soon as ~60 episodes per source are finished.
 
+It also fits one constant wrist-frame rotation per source and hand (`wrist_rot` in `cam_fit.json`): HaWoR's wrist axes differ from the tracked `state57` convention by a fixed rotation, which `to_state57.py` removes so that the 6D rotation and the fingertips use the tracked convention and the v10 normalization statistics. Expected residual after it: ~12-16 deg (median). `to_state57.py` refuses a `cam_fit.json` without `wrist_rot`.
+
 ### 3.2 Convert
 
 ```bash
@@ -371,7 +373,7 @@ The pv0 checkpoint is evaluated locally. Send the 8K `.pt` (~3.9 GB):
 | after | check |
 |---|---|
 | 2 | `hawor_status.py`: `13445/13445 done, 0 failed` (or every failure explained); worker logs mostly `cov` ≥ 0.8 per hand |
-| 3.1 | held-out wrist error median below ~60 mm per source; f in 250-350 |
+| 3.1 | held-out wrist error median below ~60 mm per source; f in 250-350; wrist-frame residual after C below ~20 deg |
 | 3.2 | `converted N, failed 0`; mean coverage L/R ≥ 0.85; `$EGOVERSE_HAWOR_ROOT` has as many entries as `$EGOVERSE_HUM_ROOT` |
 | 4 | `finalize_manifest.py`: full query set present; ~14 refs/query, ~6 cross-source |
 | 5, 6 | pod log `$IMAGINAIRE_OUTPUT_ROOT/pod_logs/<stage>_<mid>_node0.log`: `Training with 32 GPUs.`, `global batch 64 / 96 / 384` (no `WARNING: global batch`) |

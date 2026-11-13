@@ -77,7 +77,25 @@ def interp_rows(x, ok, n_out, rows):
     return out.reshape((n_out,) + x.shape[1:])
 
 
-def convert(st, h, fit, min_cov=0.3, source=None, smooth=True):
+def so3_mean(Rs):
+    """Chordal mean of rotation matrices (n,3,3): average, then project onto SO(3)."""
+    U, _, Vt = np.linalg.svd(np.mean(Rs, 0)); D = np.diag([1, 1, np.sign(np.linalg.det(U @ Vt))]); return U @ D @ Vt
+
+
+def wrist_rot_offset(pairs):
+    """Per-side constant rotation C between the HaWoR wrist frame (x: wrist->middle MCP, z: palm normal) and the
+    tracked state57 wrist frame: R_hawor ~= R_tracked @ C. pairs: list of (tracked state57, HaWoR state57) arrays.
+    Returns {side: C} and the median residual angle (deg) after the correction."""
+    out, res = {}, {}
+    for side, (p, r, _) in SIDES.items():
+        rel = np.concatenate([np.einsum("nji,njk->nik", rot6(t[:, r:r + 6]), rot6(h[:, r:r + 6])) for t, h in pairs])
+        rel = rel[np.isfinite(rel).all((1, 2))]
+        C = so3_mean(rel); out[side] = C
+        e = np.einsum("nji,njk->nik", rel, np.broadcast_to(C, rel.shape)); res[side] = float(np.degrees(np.median(np.arccos(np.clip((np.trace(e, axis1=1, axis2=2) - 1) / 2, -1, 1)))))
+    return out, res
+
+
+def convert(st, h, fit, min_cov=0.3, source=None, smooth=True, wrist_rot=None):
     """Tracked state57 (N,57) + HaWoR episode output -> HaWoR state57 (N,57), action57 (N-1,57), coverage.
 
     The head pose (0:9) is kept from the recording: the camera is fixed to the head, so HaWoR's camera frame is
@@ -101,9 +119,12 @@ def convert(st, h, fit, min_cov=0.3, source=None, smooth=True):
         x = Jw[:, 9] - Jw[:, 0]; x /= np.linalg.norm(x, axis=1, keepdims=True)
         z = np.cross(Jw[:, 5] - Jw[:, 0], Jw[:, 17] - Jw[:, 0]); z /= np.linalg.norm(z, axis=1, keepdims=True)
         y = np.cross(z, x); Rw = np.stack([x, y, z], -1)                                    # wrist frame in world
+        tips = np.einsum("nji,nkj->nki", Rw, Jw[:, TIPS] - Jw[:, :1])                       # tips in that frame
+        if wrist_rot is not None:          # express in the tracked state57 wrist-frame convention (R_h = R_t C)
+            C = np.asarray(wrist_rot[side]); Rw = Rw @ C.T; tips = tips @ C.T
         S[:, p:p + 3] = Jw[:, 0]
         S[:, r:r + 6] = six(Rw)
-        S[:, hnd:hnd + 15] = np.einsum("nji,nkj->nki", Rw, Jw[:, TIPS] - Jw[:, :1]).reshape(N, 15)
+        S[:, hnd:hnd + 15] = tips.reshape(N, 15)
     A = np.zeros((N - 1, 57))
     for p, r, _ in SIDES.values():
         Rw = rot6(S[:, r:r + 6])
