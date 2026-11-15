@@ -525,8 +525,8 @@ def main() -> None:
         kw = dict(advance=a.advance, lo=a.band_lo, hi=a.band_hi, pad=a.band_pad, lock=a.lock,
                   band=a.band, floor=a.mono_floor, cap=a.mono_band)
         for task in ARM:
-            for tag in [0] + sorted({int(x[3:]) for x in os.listdir(os.path.join(a.root, "human_context", task))}
-                                    if os.path.isdir(os.path.join(a.root, "human_context", task)) else []):
+            hc = os.path.join(a.root, human_dirs()[1], task)
+            for tag in [0] + sorted({int(x[3:]) for x in os.listdir(hc)} if os.path.isdir(hc) else []):
                 replay_check(a.root, task, tag, ["episode_10", "episode_15"], **kw)
         return
     if not a.checkpoint:

@@ -1,6 +1,6 @@
 # Real robot (Sprout), in-context post-training with retargeted demos: 6 runs on 12 nodes (6 groups of 2)
 
-Training only. Same launcher and dataset as `docs/real-robot-icl.md`; these arms read the retargeted ghosts
+Sections 1-7: training (cluster). Section 8: serving the checkpoints on the robot PC. Same launcher and dataset as `docs/real-robot-icl.md`; these arms read the retargeted ghosts
 (`human_ghost_r29/`) and place the demo window with the inference retrieval (`manifest/ghost_match_r29.json`).
 
 | group | `ARM` | experiment | base representation | warm start | port |
@@ -125,6 +125,39 @@ the six `pod_logs/sprout_<ARM>_node0.log` files or the W&B run links.
 
 As `docs/real-robot-icl.md` section 7: ~1.25 s/iter, 4,000 iterations ~1.4 h, ~1.6 h with checkpoint writes.
 
+## 8. Serving (robot PC, both representations)
+
+The server (`cosmos_policy/scripts/sprout_icl_server.py`, started by `sprout_serve.sh` for any `*_sprout_icl_*`
+EXP) reads the representation from the experiment name: `_r29abs` or `_r29rel`. It takes the retargeted demo pools
+(`human_ghost_r29/`, `human_context_r29/<task>/tag<k>/` under `SPROUT_ROOT`), integrates the client's per-frame base
+commands into the start-frame torso pose for the model's state, and turns the predicted poses back into base
+velocity commands (a constant velocity from the current pose to the chunk's end pose; none below 5 cm / 5 deg).
+The client is unchanged apart from sending its per-frame base command in the history.
+
+```bash
+# GPU PC, first terminal: one of
+EXP=cosmos_predict2p5_2b_sprout_icl_c32_r29abs_cfaug STEPS=10 ./sprout_serve.sh <ckpt>/sprout_icl_r29abs/model_000004000.pt
+EXP=cosmos_predict2p5_2b_sprout_icl_c32_r29rel_cfaug STEPS=10 ./sprout_serve.sh <ckpt>/sprout_icl_r29rel/model_000004000.pt
+#   _within / _base checkpoints: the same EXP with the suffix (cosmos_predict2p5_2b_sprout_icl_c32_r29rel_cfaug_base ...)
+
+# robot PC (sprout_real), second terminal
+.venv/bin/python policy.py --host <GPU PC> --port 5555 --demo-tag 1                 # checks + one inference, no motion
+.venv/bin/python policy.py --host <GPU PC> --port 5555 --demo-tag 1 --go --base     # run; --base is required (the
+                                                                                    # base history drives the pose)
+```
+
+`--demo-tag 0` uses the training ghosts, `1..3` a scene's demos (`--demo <name>` picks the first one). Server flags
+and env:
+
+| | default | |
+|---|---|---|
+| `--mono-floor` / `--mono-band` | 8 / 96 | per-chunk demo advance (frames) of the retrieval |
+| `SPROUT_ABS_SMOOTH` | 0 | 0: constant velocity to the chunk end; N > 1: N-frame mean of the predicted poses |
+| `SPROUT_ABS_DEAD_M` / `SPROUT_ABS_DEAD_DEG` | 0.05 / 5 | no base command when the chunk moves less |
+
+Without the robot: `sprout_real/cosmos_icl_stub_server.py` with `SPROUT_ICL_R29=abs` or `rel` serves the same sample
+builder and retrieval with a recorded episode as the output.
+
 ---
 
 ## Files
@@ -137,3 +170,4 @@ As `docs/real-robot-icl.md` section 7: ~1.25 s/iter, 4,000 iterations ~1.4 h, ~1
 | `cosmos_policy/datasets/sprout_icl_aug.py` | the augmentation factors; absolute / relative base helpers |
 | `cosmos_policy/scripts/sprout_match_table.py` | builds `manifest/ghost_match_r29.json` |
 | `quest_capture/pc/retarget.py` | builds `human_ghost_r29/` and the manifest files (in the capture repo) |
+| `cosmos_policy/scripts/sprout_icl_server.py` | the server: r29 pools, retrieval, absolute / relative base in and out |
