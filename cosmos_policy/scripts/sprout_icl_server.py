@@ -29,7 +29,7 @@ ghost's frame t (+-6 jitter), so:
   banded DTW against every demo window ending at a candidate h. The descriptor is the training pairs'
   (``quest_capture/pc/sprout_pairs.py``: start-relative wrist path + per-step delta, z-scored, 40 steps; the human
   hand in the body frame, a mirrored demo with y flipped). The candidates are a monotonic band
-  [last + --mono-floor, last + --mono-band] in demo frames (GR1 ``mono``: 8, 48; here 8, 96), whatever the wall time since the
+  [last + --mono-floor, last + --mono-band] in demo frames (GR1 ``mono``: 8, 48; sprout_icl_r29_server.py: 8, 96), whatever the wall time since the
   last chunk (the robot holds or slows while inferring, so elapsed time is not progress; ``--band elapsed`` scales
   the band by it instead: [last + lo x elapsed, last + hi x elapsed + pad]);
   the demo is the start one for the whole run (``--lock start``: the client's ``--demo``, else the pool's
@@ -143,7 +143,7 @@ BASE_ABS = False    # ..._r29abs*: head9 = the start-frame torso pose (state, ta
 GRIP_W = 12.0       # ... plus the gripper (0..1, not z-scored) x this, as a 7th descriptor channel
 
 
-IDLE_HOLD, IDLE_M = True, 0.02   # the robot still (EEF path < 2 cm, gripper and base unchanged): h holds
+IDLE_HOLD, IDLE_M = False, 0.02  # the robot still (EEF path < 2 cm, gripper and base unchanged): h holds
 POS_W = 64.0        # ... plus the torso-frame EEF position (m) x this, 3 channels (retargeted demos share the frame)
 PROG_W = 0.0        # ... plus this x |advance - elapsed| / elapsed (a pace prior; 0 off)
 BASE_W = 12.0       # ... plus the base command (vx, vy m/s, yaw rate rad/s; not z-scored) x this, 3 more channels
@@ -180,7 +180,7 @@ class Retriever:
 
     def __init__(self, root: str, task: str, tag: int, demo: str | None = None, advance: str = "mono",
                  lo: float = 0.5, hi: float = 1.5, pad: int = 8, lock: str = "start", exclude: str | None = None,
-                 band: str = "gr1", floor: int = 8, cap: int = 96):
+                 band: str = "gr1", floor: int = 8, cap: int = 48):
         import h5py
 
         files = [f for f in pool_files(root, task, tag) if os.path.basename(f)[:-3] != exclude]
@@ -497,7 +497,8 @@ def main() -> None:
     r.add_argument("--band", choices=("gr1", "elapsed"), default="gr1",
                    help="gr1: [last + --mono-floor, last + --mono-band] per chunk; elapsed: scaled by the wall time")
     r.add_argument("--mono-floor", type=int, default=8, help="--band gr1: least advance per chunk (demo frames)")
-    r.add_argument("--mono-band", type=int, default=96, help="--band gr1: most advance per chunk (demo frames; 96: a demo slower than the robot can be caught up, measured against robot-robot DTW truth)")
+    r.add_argument("--mono-band", type=int, default=48, help="--band gr1: most advance per chunk (demo frames; "
+                   "sprout_icl_r29_server.py: 96)")
     r.add_argument("--band-lo", type=float, default=0.5, help="band start: last h + this x elapsed frames (>= 1)")
     r.add_argument("--band-hi", type=float, default=1.5, help="band end: last h + this x elapsed frames + --band-pad")
     r.add_argument("--band-pad", type=int, default=8)

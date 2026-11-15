@@ -23,6 +23,7 @@ GPU=${GPU:-0}
 STEPS=${STEPS:-35}
 MOD=cosmos_policy.scripts.sprout_policy_server
 [[ "$EXP" == *_sprout_icl_* ]] && MOD=cosmos_policy.scripts.sprout_icl_server
+[[ "$EXP" == *_sprout_icl_c32_r29* ]] && MOD=cosmos_policy.scripts.sprout_icl_r29_server   # retargeted-demo arms
 PY=(uv run -q --extra cu128 --group robocasa --python 3.10 --with pyzmq --with msgpack --with msgpack-numpy)
 
 if [[ "${1:-}" == "--selftest" ]]; then

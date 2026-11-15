@@ -127,12 +127,14 @@ As `docs/real-robot-icl.md` section 7: ~1.25 s/iter, 4,000 iterations ~1.4 h, ~1
 
 ## 8. Serving (robot PC, both representations)
 
-The server (`cosmos_policy/scripts/sprout_icl_server.py`, started by `sprout_serve.sh` for any `*_sprout_icl_*`
-EXP) reads the representation from the experiment name: `_r29abs` or `_r29rel`. It takes the retargeted demo pools
+The server is `cosmos_policy/scripts/sprout_icl_r29_server.py` (`sprout_serve.sh` routes any `*_sprout_icl_c32_r29*`
+EXP to it; `sprout_icl_server.py` keeps serving the earlier ICL arms unchanged) and the client is
+`sprout_real/policy_r29.py` (`policy.py` is unchanged). The server reads the representation from the experiment
+name: `_r29abs` or `_r29rel`. It takes the retargeted demo pools
 (`human_ghost_r29/`, `human_context_r29/<task>/tag<k>/` under `SPROUT_ROOT`), integrates the client's per-frame base
 commands into the start-frame torso pose for the model's state, and turns the predicted poses back into base
 velocity commands (a constant velocity from the current pose to the chunk's end pose; none below 5 cm / 5 deg).
-The client is unchanged apart from sending its per-frame base command in the history.
+`policy_r29.py` differs from `policy.py` only in sending the base command of every frame in the ICL history.
 
 ```bash
 # GPU PC, first terminal: one of
@@ -141,8 +143,8 @@ EXP=cosmos_predict2p5_2b_sprout_icl_c32_r29rel_cfaug STEPS=10 ./sprout_serve.sh 
 #   _within / _base checkpoints: the same EXP with the suffix (cosmos_predict2p5_2b_sprout_icl_c32_r29rel_cfaug_base ...)
 
 # robot PC (sprout_real), second terminal
-.venv/bin/python policy.py --host <GPU PC> --port 5555 --demo-tag 1                 # checks + one inference, no motion
-.venv/bin/python policy.py --host <GPU PC> --port 5555 --demo-tag 1 --go --base     # run; --base is required (the
+.venv/bin/python policy_r29.py --host <GPU PC> --port 5555 --demo-tag 1             # checks + one inference, no motion
+.venv/bin/python policy_r29.py --host <GPU PC> --port 5555 --demo-tag 1 --go --base # run; --base is required (the
                                                                                     # base history drives the pose)
 ```
 
@@ -170,4 +172,4 @@ builder and retrieval with a recorded episode as the output.
 | `cosmos_policy/datasets/sprout_icl_aug.py` | the augmentation factors; absolute / relative base helpers |
 | `cosmos_policy/scripts/sprout_match_table.py` | builds `manifest/ghost_match_r29.json` |
 | `quest_capture/pc/retarget.py` | builds `human_ghost_r29/` and the manifest files (in the capture repo) |
-| `cosmos_policy/scripts/sprout_icl_server.py` | the server: r29 pools, retrieval, absolute / relative base in and out |
+| `cosmos_policy/scripts/sprout_icl_r29_server.py` | the r29 server (r29 pools, retrieval settings, absolute / relative base in and out) on `sprout_icl_server.py` |

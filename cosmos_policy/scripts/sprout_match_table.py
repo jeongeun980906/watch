@@ -41,6 +41,7 @@ def table(root: str, task: str, ep: str, chunk: int = srv.WIN) -> list[int]:
 
 def main():
     srv.DEMO29, srv.MATCH29 = True, True
+    srv.IDLE_HOLD = True                       # as sprout_icl_r29_server.py
     root = SPROUT_ROOT
     out, t0 = {}, time.time()
     for task in srv.ARM:
