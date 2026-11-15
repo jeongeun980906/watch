@@ -361,11 +361,11 @@ def _abs_state(self, state, hist, t):
     return out
 
 
-ABS_SMOOTH = int(os.environ.get("SPROUT_ABS_SMOOTH", 9))   # base_abs: moving-average window (frames) over the
+ABS_SMOOTH = int(os.environ.get("SPROUT_ABS_SMOOTH", 0))   # base_abs: moving-average window (frames) over the
                                                             # predicted poses before differencing; 0 = straight line
                                                             # from the current pose to the chunk's end pose
-ABS_DEAD_M = float(os.environ.get("SPROUT_ABS_DEAD_M", 0.03))       # ... and no base command when the chunk moves
-ABS_DEAD_DEG = float(os.environ.get("SPROUT_ABS_DEAD_DEG", 3.0))    # less than this
+ABS_DEAD_M = float(os.environ.get("SPROUT_ABS_DEAD_M", 0.05))       # ... and no base command when the chunk moves
+ABS_DEAD_DEG = float(os.environ.get("SPROUT_ABS_DEAD_DEG", 5.0))    # less than this
 
 
 def smooth_abs(b, xy0, q0, w=None):
