@@ -7,7 +7,7 @@
   * retrieval: the EEF path + gripper x12 + base command x12 + EEF position x64, band +8..+96 demo frames per chunk,
     the demo held while the robot is still (truth for the tuning: robot-robot DTW to each demo's guide episode)
   * ``_r29abs`` / ``_r29rel``: the model's state is the start-frame torso pose integrated from the client's per-frame
-    base commands (sprout_real/policy_r29.py sends them); the predicted poses go out as base velocity commands (a
+    base commands (sprout_real/policy_icl_abs.py / policy_icl_rel.py send them); the predicted poses go out as base velocity commands (a
     constant velocity to the chunk's end pose; none below SPROUT_ABS_DEAD_M / _DEG)
 
     EXP=cosmos_predict2p5_2b_sprout_icl_c32_r29rel_cfaug ./sprout_serve.sh <checkpoint.pt>
