@@ -149,14 +149,20 @@ EXP=cosmos_predict2p5_2b_sprout_icl_c32_r29rel_cfaug STEPS=10 ./sprout_serve.sh 
 .venv/bin/python policy_icl_rel.py --host <GPU PC> --port 5555 --demo-tag 1 --go --base # r29rel server
 ```
 
-`--demo-tag 0` uses the training ghosts, `1..3` a scene's demos (`--demo <name>` picks the first one). Server flags
-and env:
+`--demo-tag 0` uses the training ghosts, `1..3` a scene's demos (`--demo <name>` picks the first one). The clients
+take every `policy.py` flag. Server flags (after the checkpoint in `sprout_serve.sh`; all of `sprout_icl_server.py`'s
+flags work too):
 
-| | default | |
+| flag | default | |
 |---|---|---|
 | `--mono-floor` / `--mono-band` | 8 / 96 | per-chunk demo advance (frames) of the retrieval |
-| `SPROUT_ABS_SMOOTH` | 0 | 0: constant velocity to the chunk end; N > 1: N-frame mean of the predicted poses |
-| `SPROUT_ABS_DEAD_M` / `SPROUT_ABS_DEAD_DEG` | 0.05 / 5 | no base command when the chunk moves less |
+| `--grip-w` / `--base-w` / `--pos-w` | 12 / 12 / 64 | retrieval channel weights (0: off) |
+| `--idle-hold` / `--no-idle-hold`, `--idle-m` | on, 0.02 | hold the demo while the robot's EEF moved less (m) |
+| `--abs-smooth` | 0 | base out: 0 = constant velocity to the chunk's end pose, N > 1 = N-frame mean, 1 = raw |
+| `--abs-dead-m` / `--abs-dead-deg` | 0.05 / 5 | base out: no command when the chunk moves less |
+
+e.g. `EXP=..._r29rel_cfaug ./sprout_serve.sh <ckpt> --abs-smooth 21 --abs-dead-m 0.03`. The server prints the
+values it runs with (`[sprout-icl-r29] ...`).
 
 Without the robot: `sprout_real/cosmos_icl_stub_server.py` with `SPROUT_ICL_R29=abs` or `rel` serves the same sample
 builder and retrieval with a recorded episode as the output.
