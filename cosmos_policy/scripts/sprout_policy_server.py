@@ -189,6 +189,8 @@ def selftest(b: SampleBuilder, n: int = 6) -> None:
 
 
 class Policy:
+    builder_cls = SampleBuilder     # the ICL server (sprout_icl_server.py) swaps in its own
+
     def __init__(self, a):
         import torch
 
@@ -207,7 +209,7 @@ class Policy:
         self.chunk = int(mc.chunk_size)
         if int(mc.action_dim) != DIM29:
             raise SystemExit(f"{a.experiment}: action_dim {mc.action_dim}, not a Sprout config")
-        self.b = SampleBuilder(a.root, self.chunk)
+        self.b = self.builder_cls(a.root, self.chunk)
         if int(mc.state_t) != self.b.ds.state_t:
             raise SystemExit(f"state_t: config {mc.state_t}, dataset {self.b.ds.state_t}")
         self.shift = a.shift if a.shift is not None else float(mc.shift)
@@ -227,7 +229,7 @@ class Policy:
         from cosmos_policy.models.policy_text2world_model import extract_action_chunk_from_latent
 
         t = time.monotonic()
-        sample = self.b.build(*parse(obs))
+        sample, extra = self.sample(obs)
         batch = default_collate([sample])
         batch = {k: (v.to(**self.tk) if torch.is_tensor(v) and v.dtype.is_floating_point
                      else v.cuda() if torch.is_tensor(v) else v) for k, v in batch.items()}
@@ -242,10 +244,29 @@ class Policy:
             a = extract_action_chunk_from_latent(lat[:, :, a_idx], (self.chunk, DIM29),
                                                  decoder=getattr(self.model, "action_decoder", None))
         act = self.b.unnormalize(a[0].float().cpu().numpy())
-        return split(act), {"ms": (time.monotonic() - t) * 1000}
+        return split(act), {"ms": (time.monotonic() - t) * 1000, **extra}
 
-    def reset(self) -> dict:
+    def sample(self, obs: dict) -> tuple[dict, dict]:
+        """Observation -> (training-format sample, extra fields for the reply's info)."""
+        return self.b.build(*parse(obs)), {}
+
+    def reset(self, req: dict | None = None) -> dict:
         return {"status": "ok"}
+
+
+def warm_up(p) -> None:
+    """One inference on a training frame before serving, so the client's first request (its first chunk) is not the
+    slow one (CUDA / kernel setup: ~0.95 s against ~0.47 s at 10 steps). Not a client request."""
+    ds, b = p.b.ds, p.b
+    q = next(iter(b.slot.values()))
+    g = ds._grp(q)
+    w0 = int(ds.ww0[q])
+    state = np.asarray(g.state(ds.state_group)[w0], np.float64)
+    obs = {"video": {"front": g.frame(w0, "images.front_1")}, "state": {k: state[SLICES[k]] for k in PARTS},
+           "language": {LANGUAGE: [[str(ds.wcls[q])]]}}
+    t = time.monotonic()
+    p.act(obs)
+    print(f"[sprout] warm-up inference {(time.monotonic() - t) * 1000:.0f} ms (not a client request)", flush=True)
 
 
 def serve(p, host: str, port: int) -> None:
@@ -264,7 +285,7 @@ def serve(p, host: str, port: int) -> None:
             if ep == "ping":
                 reply = p.info()
             elif ep == "reset":
-                reply = p.reset()
+                reply = p.reset(msg.get("data") or {})
             elif ep == "get_action":
                 reply = list(p.act(msg["data"]["observation"], msg["data"].get("options")))
             else:
@@ -311,6 +332,7 @@ def main() -> None:
     p = Policy(a)
     if int(m.group(1)) != p.chunk:
         raise SystemExit(f"name says chunk {m.group(1)}, config {p.chunk}")
+    warm_up(p)
     serve(p, a.host, a.port)
 
 

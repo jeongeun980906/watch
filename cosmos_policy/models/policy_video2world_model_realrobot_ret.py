@@ -38,6 +38,8 @@ is not needed for our use case.
 """
 from __future__ import annotations
 
+import torch
+
 from cosmos_policy.models.policy_video2world_model import (
     CosmosPolicyVideo2WorldModel,
     CosmosPolicyVideo2WorldConfig,
@@ -126,6 +128,20 @@ class CosmosPolicyRealRobotRetModelRectifiedFlow(CosmosPolicyVideo2WorldModelRec
     # tiny and there's no extra capacity drain to mask out. Forcing the loss
     # to exactly 0 there was actually hurting the action loss signal mix
     # during early training. Falls back to base no-op.
+
+    def _apply_ret_loss_mask(self, final_mask_B_T, data_batch=None):
+        """``future_loss_weight`` (SproutIclAugDataset): 0 drops a sample's future-image loss (its future frame does
+        not match the augmented target). Absent: the base no-op."""
+        if not data_batch or "future_loss_weight" not in data_batch:
+            return None
+        w = data_batch["future_loss_weight"].to(final_mask_B_T.device).float()
+        if bool((w == 1).all()):
+            return None
+        fi = data_batch["future_image_latent_idx"].to(final_mask_B_T.device).long()
+        m = final_mask_B_T.clone().float()
+        b = torch.arange(m.shape[0], device=m.device)
+        m[b, fi] = m[b, fi] * w
+        return m
 
     def get_velocity_fn_from_batch(self, data_batch, guidance=1.5, **kwargs):
         import os

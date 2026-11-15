@@ -16,6 +16,14 @@
 #   ARM=icl_base   cosmos_predict2p5_2b_sprout_icl_c32_base         same, no mid
 #   ARM=icl_mix30  cosmos_predict2p5_2b_sprout_icl_c32_mix30        WATCH mid, 30% of demos from another episode
 #   ARM=icl_mix30_base cosmos_predict2p5_2b_sprout_icl_c32_mix30_base no mid, 30% of demos from another episode
+#   ARM=icl_r29abs        cosmos_predict2p5_2b_sprout_icl_c32_r29abs_cfaug          retargeted demo, absolute base,
+#                                                                                  augmentation, from the WATCH mid (ours)
+#   ARM=icl_r29abs_within cosmos_predict2p5_2b_sprout_icl_c32_r29abs_cfaug_within   same, from the within-video mid
+#   ARM=icl_r29abs_base   cosmos_predict2p5_2b_sprout_icl_c32_r29abs_cfaug_base     same, no mid
+#   ARM=icl_r29rel        cosmos_predict2p5_2b_sprout_icl_c32_r29rel_cfaug          retargeted demo, chunk-relative base
+#                                                                                  target, augmentation, WATCH mid (ours)
+#   ARM=icl_r29rel_within cosmos_predict2p5_2b_sprout_icl_c32_r29rel_cfaug_within   same, from the within-video mid
+#   ARM=icl_r29rel_base   cosmos_predict2p5_2b_sprout_icl_c32_r29rel_cfaug_base     same, no mid
 #   icl*: global 64 (half of pv0; the per-GPU batch is 64 / (NNODES x NPROC_PER_NODE): 4 on 2 x 8, 8 on 1 x 8),
 #         4K iterations (42 epochs of the 6,158 windows of the two tasks with human data), a checkpoint every 1K
 #
@@ -32,11 +40,16 @@ NPROC_PER_NODE=${NPROC_PER_NODE:-8}
 case "$ARM" in
   c32|c16|c32_within|c16_within|c32_base|c16_base)
     EXP=cosmos_predict2p5_2b_sprout_3task_pv0_${ARM}; BATCH_SIZE=8; GBATCH=128 ;;
-  icl|icl_base|icl_mix30|icl_mix30_base)
-    EXP=cosmos_predict2p5_2b_sprout_icl_c32${ARM#icl}; GBATCH=64
+  icl|icl_base|icl_mix30|icl_mix30_base|icl_r29abs|icl_r29abs_within|icl_r29abs_base|icl_r29rel|icl_r29rel_within|icl_r29rel_base)
+    case "$ARM" in
+      icl_r29abs*|icl_r29rel*) rep=${ARM#icl_}; rep=${rep%%_*}; mid=${ARM#icl_$rep}
+                               EXP=cosmos_predict2p5_2b_sprout_icl_c32_${rep}_cfaug${mid} ;;
+      *) EXP=cosmos_predict2p5_2b_sprout_icl_c32${ARM#icl} ;;
+    esac
+    GBATCH=64
     (( GBATCH % (NNODES * NPROC_PER_NODE) == 0 )) || { echo "global $GBATCH not divisible by $NNODES x $NPROC_PER_NODE GPUs" >&2; exit 1; }
     BATCH_SIZE=$(( GBATCH / (NNODES * NPROC_PER_NODE) )) ;;
-  *) echo "ARM must be c32, c16, c32_within, c16_within, c32_base, c16_base, icl, icl_base, icl_mix30 or icl_mix30_base (got $ARM)" >&2; exit 1 ;;
+  *) echo "ARM must be c32, c16, c32_within, c16_within, c32_base, c16_base, icl, icl_base, icl_mix30, icl_mix30_base, icl_r29abs[_within|_base] or icl_r29rel[_within|_base] (got $ARM)" >&2; exit 1 ;;
 esac
 MASTER_PORT=${MASTER_PORT:-12351}
 WANDB_MODE=${WANDB_MODE:-online}
@@ -61,8 +74,16 @@ if [[ "$ARM" == icl* ]]; then
     [ "$n" -eq 20 ] || { echo "[$ARM] $SPROUT_ROOT/human_ghost/$t has $n ghost episodes, expected 20" >&2; exit 1; }
   done
 fi
+if [[ "$ARM" == icl_r29* ]]; then     # the retargeted demos (quest_capture/pc/retarget.py) + the retrieval table
+  need_file "$SPROUT_ROOT/manifest/ghost_match_r29.json"
+  for t in sprout_cup_to_drawer sprout_open_drawer; do
+    n=$(ls "$SPROUT_ROOT/human_ghost_r29/$t"/episode_*.h5 2>/dev/null | wc -l)
+    [ "$n" -eq 20 ] || { echo "[$ARM] $SPROUT_ROOT/human_ghost_r29/$t has $n episodes, expected 20" >&2; exit 1; }
+  done
+fi
 case "$ARM" in
-  c32|c16|icl|icl_mix30)   : "${SPROUT_MID_CKPT:?set SPROUT_MID_CKPT (WATCH mid .pt)}"; need_file "$SPROUT_MID_CKPT"; export SPROUT_MID_CKPT ;;
+  c32|c16|icl|icl_mix30|icl_r29abs|icl_r29rel)
+             : "${SPROUT_MID_CKPT:?set SPROUT_MID_CKPT (WATCH mid .pt)}"; need_file "$SPROUT_MID_CKPT"; export SPROUT_MID_CKPT ;;
   *_within)  : "${SPROUT_WITHIN_CKPT:?set SPROUT_WITHIN_CKPT (within-video mid .pt)}"; need_file "$SPROUT_WITHIN_CKPT"
              export SPROUT_WITHIN_CKPT ;;
 esac

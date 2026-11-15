@@ -233,6 +233,10 @@ robot's speed (40 episodes of the two single-arm tasks, `human_ghost/` in HF `Je
 2-node groups (`ARM=icl|icl_base|icl_mix30|icl_mix30_base`): own-episode demos and 30% other-episode demos, each from
 the WATCH mid and from the base; global batch 64, 4K iterations, 8 nodes.
 
+[docs/real-robot-icl-r29.md](docs/real-robot-icl-r29.md): the same with the demos retargeted to the robot's state29
+(`human_ghost_r29/`) and placed by the inference retrieval, with augmentation; absolute or chunk-relative base, each
+from the WATCH mid, the within-video mid and no mid (`ARM=icl_r29abs|icl_r29rel` `[_within|_base]`), 12 nodes.
+
 ## 7. Repository layout
 
 ```

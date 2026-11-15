@@ -626,6 +626,19 @@ class DistributedCheckpointer(AbstractCheckpointer):
         else:
             pt_state_dict = {}
 
+        if getattr(model.config, "use_lora", False) and distributed.is_rank0():
+            # LoRA (peft) renames the wrapped layers: net.blocks.0.attn.q_proj.weight is
+            # net.base_model.model.blocks.0.attn.q_proj.base_layer.weight in the model. With
+            # strict=False they would silently stay at their init, so map them here.
+            mkeys = list(get_model_state_dict(model).keys())
+            plain = lambda k: k.replace("base_model.model.", "").replace("base_layer.", "")  # noqa: E731
+            mapped = {mk: pt_state_dict[plain(mk)] for mk in mkeys if plain(mk) in pt_state_dict}
+            lora_keys = [mk for mk in mkeys if "lora_" in mk]
+            missing = [mk for mk in mkeys if plain(mk) not in pt_state_dict and "lora_" not in mk]
+            log.critical(f"LoRA warm start: {len(mapped)} of {len(mkeys)} model keys from the .pt, "
+                         f"{len(lora_keys)} LoRA keys at init, {len(missing)} missing (e.g. {missing[:3]})")
+            pt_state_dict = mapped
+
         set_model_state_dict(
             model,
             model_state_dict=pt_state_dict,

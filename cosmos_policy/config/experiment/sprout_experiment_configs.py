@@ -39,7 +39,8 @@ from cosmos_policy.config.experiment.tabletop_sim_experiment_configs import (
     _plain_end_model_override,
     _tabletop_short_post,
 )
-from cosmos_policy.datasets.sprout_dataset import DIM29, SPROUT_ROOT, SproutIclDataset, SproutPlainEndDataset
+from cosmos_policy.datasets.sprout_dataset import (DIM29, SPROUT_ROOT, SproutIclAugDataset, SproutIclDataset,
+                                                   SproutPlainEndDataset)
 
 MANIFEST = f"{SPROUT_ROOT}/manifest"
 ITER = int(os.environ.get("SPROUT_ITER", 4_000))
@@ -170,6 +171,44 @@ def _sprout_icl(name: str, ckpt: str, other_prob: float = 0.0):
 for _tag, _ck, _op in (("", _CK_WATCH_MID, 0.0), ("_base", "", 0.0), ("_mix30", _CK_WATCH_MID, 0.3), ("_mix30_base", "", 0.3)):
     _name = f"cosmos_predict2p5_2b_sprout_icl_c32{_tag}"
     globals()[_name] = _sprout_icl(_name, _ck, _op)
+    globals()[f"{_name}__inference_only"] = _inference_only(_name)
+    _NAMES += [_name, f"{_name}__inference_only"]
+
+# ---- ICL + demo-consistent augmentation (2026-11-14) ----------------------------------------------------------
+# The own-ghost runs ignore the demo (a yaw-reversed or other-grasp demo leaves the prediction unchanged): one
+# behaviour per scene, so the image decides. SproutIclAugDataset (datasets/sprout_icl_aug.py) transforms the demo and
+# the target together (tempo, yaw, wrist rotation, arm mirror, full mirror) so the demo decides. _cfnone is its
+# control: the same dataset class with every factor off (= sprout_icl).
+#   local probe (1 GPU, LoRA, from sprout_icl 4K): checkpoint.load_path=<.../sprout_icl/model_000004000.pt>
+#   model.config.use_lora=True model.config.ema.enabled=False
+# _r29*: the demo is the RETARGETED human (quest_capture/pc/retarget.py: human_ghost_r29/ "state29", robot-normalised),
+# i.e. the same representation as the robot state and target; _r29 = no augmentation, _r29_cfaug = with it.
+# The _r29* demos are placed by the inference retrieval (match_table: manifest/ghost_match_r29.json), not t +- 6.
+# _r29abs*: also head9 = the start-frame torso pose instead of the velocity command (state, target, demo; base_abs).
+# The release arms (docs/real-robot-icl.md, scripts/train_sprout_2node.sh ARM=icl_r29abs* / icl_r29rel*): both base
+# representations with the augmentation, from the WATCH mid (ours), the within-video mid and no mid (Cosmos base):
+#   ..._r29abs_cfaug[_within|_base]   head9 = the start-frame torso pose (state, target, demo)
+#   ..._r29rel_cfaug[_within|_base]   state: start-frame pose; target + demo chunk: relative to the chunk's start pose
+_ARMS = [("_cfaug", {"p_arm": 0.0}, False, _CK_WATCH_MID), ("_cfnone", None, False, _CK_WATCH_MID),
+         ("_r29", None, True, _CK_WATCH_MID), ("_r29_cfaug", {"p_arm": 0.0}, True, _CK_WATCH_MID),
+         ("_r29abs", None, True, _CK_WATCH_MID), ("_r29absin_cfaug", {"p_arm": 0.0}, True, _CK_WATCH_MID)]
+for _rep in ("_r29abs_cfaug", "_r29rel_cfaug"):
+    for _mtag, _mck in (("", _CK_WATCH_MID), ("_within", _CK_WITHIN_MID), ("_base", "")):
+        _ARMS.append((_rep + _mtag, {"p_arm": 0.0}, True, _mck))
+for _tag, _cf, _d29, _ck in _ARMS:
+    _name = f"cosmos_predict2p5_2b_sprout_icl_c32{_tag}"
+    _e = _sprout_icl(_name, _ck, 0.0)
+    _ds = L(SproutIclAugDataset)(**{k: v for k, v in _SPROUT_ICL_DATASET.items() if k != "_target_"})
+    _ds.chunk_size = 32
+    _ds.cf_aug = _cf
+    _ds.demo29 = _d29
+    _ds.match_table = _d29
+    _ds.base_abs = "abs" in _tag or "rel" in _tag
+    _ds.base_rel = "rel" in _tag              # _r29rel*: chunk-relative target + demo chunk, start-frame state
+    _ds.base_abs_out = "absin" not in _tag    # _r29absin*: absolute state + demo, velocity target
+    _e["dataloader_train"]["dataset"] = _ds
+    _e["dataloader_train"]["sampler"]["dataset"] = _ds
+    globals()[_name] = _e
     globals()[f"{_name}__inference_only"] = _inference_only(_name)
     _NAMES += [_name, f"{_name}__inference_only"]
 

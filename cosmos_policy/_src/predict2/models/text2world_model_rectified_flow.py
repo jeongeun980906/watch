@@ -1229,6 +1229,12 @@ class Text2WorldModelRectifiedFlow(ImaginaireModel):
         except Exception as e:
             raise RuntimeError(f"Failed to inject LoRA adapters into model: {e}") from e
 
+        # The slot-role table is zero-init when the warm start lacks it (the Cosmos base); frozen it would leave every
+        # slot role identical, so it trains with the adapters.
+        for name, param in network.named_parameters():
+            if "role_embedder" in name:
+                param.requires_grad_(True)
+
         # Count and log LoRA parameters
         lora_params = 0
         total_params = 0

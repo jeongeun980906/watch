@@ -4,6 +4,9 @@
 #   ./sprout_serve.sh <checkpoint.pt> [extra server flags]
 #   EXP=cosmos_predict2p5_2b_sprout_3task_pv0_c16 ./sprout_serve.sh .../sprout_pv0_c16/model_000004000.pt
 #   ./sprout_serve.sh --selftest                     # no GPU: the sample builder against training samples
+#   EXP=cosmos_predict2p5_2b_sprout_icl_c32 ./sprout_serve.sh .../sprout_icl/model_000004000.pt
+#                                                    # in-context (human demo) arms: sprout_icl_server.py, the client
+#                                                    # adds --demo-tag (0 = training ghosts, 1..3 = a scene's demos)
 #
 # EXP must be the config the checkpoint was trained with (default chunk 32, ours); the server refuses a mismatch of
 # chunk size, action dim or state_t. SPROUT_ROOT is the training store (manifest + h5,
@@ -18,11 +21,13 @@ EXP=${EXP:-cosmos_predict2p5_2b_sprout_3task_pv0_c32}
 PORT=${PORT:-5555}
 GPU=${GPU:-0}
 STEPS=${STEPS:-35}
+MOD=cosmos_policy.scripts.sprout_policy_server
+[[ "$EXP" == *_sprout_icl_* ]] && MOD=cosmos_policy.scripts.sprout_icl_server
 PY=(uv run -q --extra cu128 --group robocasa --python 3.10 --with pyzmq --with msgpack --with msgpack-numpy)
 
 if [[ "${1:-}" == "--selftest" ]]; then
   CUDA_VISIBLE_DEVICES="" OMP_NUM_THREADS=4 PYTHONPATH=. exec "${PY[@]}" \
-    python -m cosmos_policy.scripts.sprout_policy_server --experiment "$EXP" --selftest
+    python -m "$MOD" --experiment "$EXP" --selftest
 fi
 CKPT=${1:?usage: ./sprout_serve.sh <checkpoint.pt> [server flags]}
 shift
@@ -34,5 +39,5 @@ shift
 CUDNN_HOME=${CUDNN_HOME:-$PWD/.venv/lib/python3.10/site-packages/nvidia/cudnn} \
 CUDA_VISIBLE_DEVICES=$GPU RANK=0 WORLD_SIZE=1 LOCAL_RANK=0 MASTER_ADDR=127.0.0.1 MASTER_PORT=${MPORT:-12370} \
 HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1} PYTHONPATH=. \
-  exec "${PY[@]}" python -m cosmos_policy.scripts.sprout_policy_server \
+  exec "${PY[@]}" python -m "$MOD" \
   --experiment "$EXP" --checkpoint "$CKPT" --port "$PORT" --num-steps "$STEPS" ${@+"$@"}
