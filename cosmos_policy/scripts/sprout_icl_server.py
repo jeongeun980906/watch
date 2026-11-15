@@ -361,11 +361,51 @@ def _abs_state(self, state, hist, t):
     return out
 
 
-ABS_SMOOTH = int(os.environ.get("SPROUT_ABS_SMOOTH", 0))   # base_abs: moving-average window (frames) over the
+ABS_SMOOTH = int(os.environ.get("SPROUT_ABS_SMOOTH", -1))  # base_abs: -1 = robot-speed bursts (burst_cmd); 0 = a
+                                                            # constant velocity to the chunk end; N > 1 = moving-average window (frames) over the
                                                             # predicted poses before differencing; 0 = straight line
                                                             # from the current pose to the chunk's end pose
 ABS_DEAD_M = float(os.environ.get("SPROUT_ABS_DEAD_M", 0.05))       # ... and no base command when the chunk moves
 ABS_DEAD_DEG = float(os.environ.get("SPROUT_ABS_DEAD_DEG", 5.0))    # less than this
+
+
+BURST_V = float(os.environ.get("SPROUT_BURST_V", 0.38))          # m/s, the robot's median base speed when it moves
+BURST_W = float(os.environ.get("SPROUT_BURST_DEG_S", 60.0))      # deg/s, its median turn rate
+BURST_EXEC = int(os.environ.get("SPROUT_BURST_EXEC", 24))        # frames of a chunk the client plays (its --replan)
+
+
+def burst_cmd(b, xy0, q0):
+    """Predicted poses (n, 9) -> base commands as the robot drives: the chunk's net step (in the current body frame)
+    at BURST_V, then its net turn at BURST_W, each as one burst, starting where the prediction starts to move and
+    finished inside the frames the client plays; zero elsewhere. Below ABS_DEAD_M / ABS_DEAD_DEG: nothing."""
+    from cosmos_policy.datasets import sprout_icl_aug as A
+    n = len(b)
+    bx, bq = A.head_pose_abs(b)
+    c, s_ = np.cos(-q0), np.sin(-q0)
+    rel = (bx - np.asarray(xy0)[None]) @ np.array([[c, s_], [-s_, c]])        # body frame of now
+    dq = np.angle(np.exp(1j * (np.unwrap(np.r_[q0, bq])[1:] - q0)))
+    d, dyaw = rel[-1], dq[-1]
+    cmd = np.zeros((n, 9))
+    cmd[:, 3] = cmd[:, 7] = 1.0
+    move = np.linalg.norm(d) >= ABS_DEAD_M
+    turn = abs(np.degrees(dyaw)) >= ABS_DEAD_DEG
+    if not (move or turn):
+        return cmd
+    m_xy = int(np.ceil(np.linalg.norm(d) / BURST_V * A.FPS)) if move else 0
+    m_q = int(np.ceil(abs(np.degrees(dyaw)) / BURST_W * A.FPS)) if turn else 0
+    prog = np.maximum(np.linalg.norm(rel, axis=1) / max(np.linalg.norm(d), 1e-6) if move else 0,
+                      np.abs(dq) / max(abs(dyaw), 1e-6) if turn else 0)
+    t0 = int(np.argmax(prog >= 0.25))                                          # the predicted motion's start
+    t0 = max(0, min(t0, min(BURST_EXEC, n) - (m_xy + m_q)))
+    if move:
+        v = d / m_xy * A.FPS                                                    # constant body-frame velocity
+        cmd[t0:t0 + m_xy, 0:2] = v
+    if turn:
+        step = dyaw / m_q
+        a = t0 + m_xy
+        cmd[a:a + m_q, 3], cmd[a:a + m_q, 4] = np.cos(step), np.sin(step)
+        cmd[a:a + m_q, 6], cmd[a:a + m_q, 7] = -np.sin(step), np.cos(step)
+    return cmd
 
 
 def smooth_abs(b, xy0, q0, w=None):
@@ -394,10 +434,13 @@ def _abs_act(self, obs, options=None):
         from cosmos_policy.datasets import sprout_icl_aug as A
         xy, q = (np.zeros(2), 0.0) if BASE_REL else self.pose      # base_rel: the poses are relative to now
         b = np.asarray(res["base"][0], np.float64)
-        b = smooth_abs(b, xy, q)
-        cmd = A.cmd_from_abs(b, xy, q)
+        if ABS_SMOOTH < 0:                 # bursts at the robot's base speed (it does not move below ~0.35 m/s)
+            cmd = burst_cmd(b, xy, q)
+        else:
+            b = smooth_abs(b, xy, q)
+            cmd = A.cmd_from_abs(b, xy, q)
         bx, bq = A.head_pose_abs(b)
-        if np.linalg.norm(bx[-1] - xy) < ABS_DEAD_M and abs(np.angle(np.exp(1j * (bq[-1] - q)))) < np.radians(ABS_DEAD_DEG):
+        if ABS_SMOOTH >= 0 and np.linalg.norm(bx[-1] - xy) < ABS_DEAD_M and abs(np.angle(np.exp(1j * (bq[-1] - q)))) < np.radians(ABS_DEAD_DEG):
             cmd[:, :2] = 0.0                                  # a still base: the robot stands still between moves
             cmd[:, 3:9] = [1, 0, 0, 0, 1, 0]
         res["base"] = cmd.astype(np.float32)[None]

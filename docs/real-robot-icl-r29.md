@@ -133,7 +133,8 @@ EXP to it; `sprout_icl_server.py` keeps serving the earlier ICL arms unchanged) 
 name: `_r29abs` or `_r29rel`. It takes the retargeted demo pools
 (`human_ghost_r29/`, `human_context_r29/<task>/tag<k>/` under `SPROUT_ROOT`), integrates the client's per-frame base
 commands into the start-frame torso pose for the model's state, and turns the predicted poses back into base
-velocity commands (a constant velocity from the current pose to the chunk's end pose; none below 5 cm / 5 deg).
+velocity commands as the robot drives: the chunk's net step at 0.38 m/s, then its net turn at 60 deg/s, each one burst
+inside the frames the client plays (the base does not move below ~0.35 m/s); none below 5 cm / 5 deg.
 `policy_icl_abs.py` and `policy_icl_rel.py` differ from `policy.py` only in sending the base command of every frame in the ICL history.
 
 ```bash
@@ -158,10 +159,11 @@ flags work too):
 | `--mono-floor` / `--mono-band` | 8 / 96 | per-chunk demo advance (frames) of the retrieval |
 | `--grip-w` / `--base-w` / `--pos-w` | 12 / 12 / 64 | retrieval channel weights (0: off) |
 | `--idle-hold` / `--no-idle-hold`, `--idle-m` | on, 0.02 | hold the demo while the robot's EEF moved less (m) |
-| `--abs-smooth` | 0 | base out: 0 = constant velocity to the chunk's end pose, N > 1 = N-frame mean, 1 = raw |
+| `--abs-smooth` | -1 | base out: -1 = robot-speed bursts, 0 = constant velocity to the chunk's end pose, N > 1 = N-frame mean, 1 = raw |
+| `--burst-v` / `--burst-deg-s` / `--burst-exec` | 0.38 / 60 / 24 | bursts: speed (m/s), turn rate (deg/s), frames the client plays (its `--replan`) |
 | `--abs-dead-m` / `--abs-dead-deg` | 0.05 / 5 | base out: no command when the chunk moves less |
 
-e.g. `EXP=..._r29rel_cfaug ./sprout_serve.sh <ckpt> --abs-smooth 21 --abs-dead-m 0.03`. The server prints the
+e.g. `EXP=..._r29rel_cfaug ./sprout_serve.sh <ckpt> --burst-v 0.35 --abs-dead-m 0.03`. The server prints the
 values it runs with (`[sprout-icl-r29] ...`).
 
 Without the robot: `sprout_real/cosmos_icl_stub_server.py` with `SPROUT_ICL_R29=abs` or `rel` serves the same sample

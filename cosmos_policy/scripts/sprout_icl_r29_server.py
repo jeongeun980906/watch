@@ -15,8 +15,9 @@
 Flags of this server (on top of every sprout_icl_server.py flag, e.g. --mono-floor / --mono-band / --lock / --steps):
     --grip-w 12 --base-w 12 --pos-w 64        retrieval channel weights (0 turns a channel off)
     --idle-hold / --no-idle-hold, --idle-m 0.02   hold the demo while the robot's EEF moved less than this (m)
-    --abs-smooth 0                            base out: 0 = constant velocity to the chunk end, N > 1 = N-frame mean,
-                                              1 = none (the model's poses as they are)
+    --abs-smooth -1                           base out: -1 = robot-speed bursts (--burst-v 0.38 m/s, --burst-deg-s 60,
+                                              inside --burst-exec 24 frames: the client's --replan); 0 = constant
+                                              velocity to the chunk end; N > 1 = N-frame mean; 1 = the raw poses
     --abs-dead-m 0.05 --abs-dead-deg 5        base out: no command when the chunk moves less
 """
 import argparse
@@ -39,15 +40,21 @@ def main() -> None:
     ap.add_argument("--idle-m", type=float, default=I.IDLE_M)
     ap.add_argument("--abs-smooth", type=int, default=I.ABS_SMOOTH)
     ap.add_argument("--abs-dead-m", type=float, default=I.ABS_DEAD_M)
+    ap.add_argument("--burst-v", type=float, default=I.BURST_V)
+    ap.add_argument("--burst-deg-s", type=float, default=I.BURST_W)
+    ap.add_argument("--burst-exec", type=int, default=I.BURST_EXEC)
     ap.add_argument("--abs-dead-deg", type=float, default=I.ABS_DEAD_DEG)
     a, rest = ap.parse_known_args(sys.argv[1:])
     I.GRIP_W, I.BASE_W, I.POS_W = a.grip_w, a.base_w, a.pos_w
     I.IDLE_HOLD, I.IDLE_M = a.idle_hold, a.idle_m
     I.ABS_SMOOTH, I.ABS_DEAD_M, I.ABS_DEAD_DEG = a.abs_smooth, a.abs_dead_m, a.abs_dead_deg
+    I.BURST_V, I.BURST_W, I.BURST_EXEC = a.burst_v, a.burst_deg_s, a.burst_exec
     sys.argv = sys.argv[:1] + rest
+    mode = {-1: f"bursts {I.BURST_V:g} m/s, {I.BURST_W:g} deg/s inside {I.BURST_EXEC} frames", 0: "constant velocity",
+            1: "raw poses"}.get(I.ABS_SMOOTH, f"{I.ABS_SMOOTH}-frame mean")
     print(f"[sprout-icl-r29] retrieval: grip x{I.GRIP_W:g} base x{I.BASE_W:g} position x{I.POS_W:g}, idle hold "
-          f"{I.IDLE_HOLD} ({I.IDLE_M:g} m) | base out: smooth {I.ABS_SMOOTH} (0 = constant velocity), deadband "
-          f"{I.ABS_DEAD_M:g} m / {I.ABS_DEAD_DEG:g} deg", flush=True)
+          f"{I.IDLE_HOLD} ({I.IDLE_M:g} m) | base out: {mode}, deadband {I.ABS_DEAD_M:g} m / {I.ABS_DEAD_DEG:g} deg",
+          flush=True)
     if "-h" in rest or "--help" in rest:
         print(__doc__)
     if not any(x.startswith("--mono-band") for x in sys.argv[1:]):
