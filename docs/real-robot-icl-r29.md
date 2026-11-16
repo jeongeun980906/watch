@@ -135,9 +135,17 @@ name: `_r29abs` or `_r29rel`. It takes the retargeted demo pools
 commands into the start-frame torso pose for the model's state, and turns the predicted poses back into base
 velocity commands as the robot drives: the chunk's net step at 0.38 m/s, then its net turn at 60 deg/s, each one burst
 inside the frames the client plays (the base does not move below ~0.35 m/s); none below 5 cm / 5 deg.
-`policy_icl_abs.py` and `policy_icl_rel.py` differ from `policy.py` only in sending the base command of every frame in the ICL history.
+`policy_icl_abs.py` and `policy_icl_rel.py` differ from `policy.py` in sending the base command of every frame in the ICL
+history and in their defaults `--mode sync --replan 24` (`policy.py`: `auto`): every chunk plays from its frame 0 for 24
+frames, the frames the server puts the base bursts in (`--burst-exec 24`); the arm holds for the inference (~0.7 s at
+10 steps) between chunks. In async mode a chunk starts at the frame of its observation time and plays fewer frames, so
+a burst early in the chunk would be skipped. A different `--replan` needs the same `--burst-exec` on the server.
 
 ```bash
+# GPU PC: the checkpoints (4K)
+hf download watch-2026-icl/watch-2026-posttrain-robot-icl --local-dir <ckpt> \
+  --include 'sprout_icl_r29abs/model_000004000.pt' 'sprout_icl_r29rel/model_000004000.pt'
+
 # GPU PC, first terminal: one of
 EXP=cosmos_predict2p5_2b_sprout_icl_c32_r29abs_cfaug STEPS=10 ./sprout_serve.sh <ckpt>/sprout_icl_r29abs/model_000004000.pt
 EXP=cosmos_predict2p5_2b_sprout_icl_c32_r29rel_cfaug STEPS=10 ./sprout_serve.sh <ckpt>/sprout_icl_r29rel/model_000004000.pt
