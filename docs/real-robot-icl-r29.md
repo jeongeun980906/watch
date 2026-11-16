@@ -171,9 +171,22 @@ flags work too):
 | `--burst-v` / `--burst-deg-s` / `--burst-exec` | 0.38 / 60 / 24 | bursts: speed (m/s), turn rate (deg/s), frames the client plays (its `--replan`) |
 | `--abs-dead-m` / `--abs-dead-deg` | 0.05 / 5 | base out: no command when the chunk moves less |
 | `--burst-start` | 6 | bursts start at this frame or later: the client's chunk crossfade (`--blend-s`, 0.4 s = 6 frames) fades the base velocity too; 0 with the client's `--blend-s 0` |
-| `--base-xy-gain` | 1 | bursts: the predicted step (above the deadband) x this, e.g. 1.5 when the base moves too little |
 
-e.g. `EXP=..._r29rel_cfaug ./sprout_serve.sh <ckpt> --burst-v 0.35 --abs-dead-m 0.03`. The server prints the
+These are the server's defaults; the client sends its own with every request (below), so the settings changed
+between runs live on the robot PC. e.g. `EXP=..._r29rel_cfaug ./sprout_serve.sh <ckpt> --burst-v 0.35 --abs-dead-m 0.03`.
+
+Client flags (`policy_icl_abs.py` / `policy_icl_rel.py`, on top of every `policy.py` flag):
+
+| flag | default | |
+|---|---|---|
+| `--demo-tag` / `--demo` | - / the pool's first | demo pool and its demo (e.g. `--demo-tag 0 --demo episode_13`) |
+| `--base-xy-gain` | 1 | the step sent to the base = the predicted one x this (longer at the same speed, inside `--replan`); the tracked pose keeps the predicted step |
+| `--track-min-v` | 0.3 | the tracked pose (ICL history) counts no step slower than this (m/s) |
+| `--burst-v` / `--burst-deg-s` | server (0.38 / 60) | step speed (m/s), turn rate (deg/s) |
+| `--burst-start` | server (6) | earliest burst frame; 0 with `--blend-s 0` |
+| `--base-dead-m` / `--base-dead-deg` | server (0.05 / 5) | no step / turn below this predicted one |
+| `--mode` / `--replan` | sync / 24 | the bursts end inside `--replan` frames (sent as the server's burst_exec) |
+ The server prints the
 values it runs with (`[sprout-icl-r29] ...`).
 
 Without the robot: `sprout_real/cosmos_icl_stub_server.py` with `SPROUT_ICL_R29=abs` or `rel` serves the same sample

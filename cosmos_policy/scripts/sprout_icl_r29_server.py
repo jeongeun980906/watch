@@ -21,7 +21,8 @@ Flags of this server (on top of every sprout_icl_server.py flag, e.g. --mono-flo
     --abs-dead-m 0.05 --abs-dead-deg 5        base out: no command when the chunk moves less
     --burst-start 6                           bursts start at this frame or later (the client's 0.4 s crossfade fades
                                               the base velocity too; 0 with the client's --blend-s 0)
-    --base-xy-gain 1                          bursts: the predicted step x this (e.g. 1.5 when the base moves too little)
+    The client may override the burst settings per request (policy_icl_abs.py --burst-v ...; burst_exec = its --replan)
+    and asks for its --base-xy-gain there: only the sent step is gained, the tracked pose is not.
 """
 import argparse
 import sys
@@ -47,17 +48,16 @@ def main() -> None:
     ap.add_argument("--burst-deg-s", type=float, default=I.BURST_W)
     ap.add_argument("--burst-exec", type=int, default=I.BURST_EXEC)
     ap.add_argument("--burst-start", type=int, default=I.BURST_START)
-    ap.add_argument("--base-xy-gain", type=float, default=I.BASE_XY_GAIN)
     ap.add_argument("--abs-dead-deg", type=float, default=I.ABS_DEAD_DEG)
     a, rest = ap.parse_known_args(sys.argv[1:])
     I.GRIP_W, I.BASE_W, I.POS_W = a.grip_w, a.base_w, a.pos_w
     I.IDLE_HOLD, I.IDLE_M = a.idle_hold, a.idle_m
     I.ABS_SMOOTH, I.ABS_DEAD_M, I.ABS_DEAD_DEG = a.abs_smooth, a.abs_dead_m, a.abs_dead_deg
     I.BURST_V, I.BURST_W, I.BURST_EXEC = a.burst_v, a.burst_deg_s, a.burst_exec
-    I.BURST_START, I.BASE_XY_GAIN = a.burst_start, a.base_xy_gain
+    I.BURST_START = a.burst_start
     sys.argv = sys.argv[:1] + rest
-    mode = {-1: f"bursts {I.BURST_V:g} m/s, {I.BURST_W:g} deg/s from frame {I.BURST_START} inside {I.BURST_EXEC} frames, "
-                f"step x{I.BASE_XY_GAIN:g}", 0: "constant velocity",
+    mode = {-1: f"bursts {I.BURST_V:g} m/s, {I.BURST_W:g} deg/s from frame {I.BURST_START} inside {I.BURST_EXEC} frames "
+                f"(client options override)", 0: "constant velocity",
             1: "raw poses"}.get(I.ABS_SMOOTH, f"{I.ABS_SMOOTH}-frame mean")
     print(f"[sprout-icl-r29] retrieval: grip x{I.GRIP_W:g} base x{I.BASE_W:g} position x{I.POS_W:g}, idle hold "
           f"{I.IDLE_HOLD} ({I.IDLE_M:g} m) | base out: {mode}, deadband {I.ABS_DEAD_M:g} m / {I.ABS_DEAD_DEG:g} deg",

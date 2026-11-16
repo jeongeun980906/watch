@@ -374,35 +374,49 @@ BURST_W = float(os.environ.get("SPROUT_BURST_DEG_S", 60.0))      # deg/s, its me
 BURST_EXEC = int(os.environ.get("SPROUT_BURST_EXEC", 24))        # frames of a chunk the client plays (its --replan)
 BURST_START = int(os.environ.get("SPROUT_BURST_START", 6))       # earliest burst frame: the client's chunk crossfade
                                                                  # (--blend-s 0.4 s = 6 frames) also fades the base velocity
-BASE_XY_GAIN = float(os.environ.get("SPROUT_BASE_XY_GAIN", 1.0))  # bursts: the chunk's net step x this (1 = as predicted)
+# Per request the client may override these (options: burst_v, burst_deg_s, burst_exec, burst_start, dead_m, dead_deg)
+# and ask for xy_gain: the step it SENDS is the predicted one x xy_gain (longer at the same speed, inside burst_exec);
+# info["base_track"] is the same burst without the gain: what the client keeps in the history (the tracked pose).
+BURST_KEYS = ("burst_v", "burst_deg_s", "burst_exec", "burst_start", "dead_m", "dead_deg")
 
 
-def burst_cmd(b, xy0, q0):
+def burst_cmd(b, xy0, q0, gain=1.0, burst_v=None, burst_deg_s=None, burst_exec=None, burst_start=None, dead_m=None,
+              dead_deg=None):
     """Predicted poses (n, 9) -> base commands as the robot drives: the chunk's net step (in the current body frame)
-    at BURST_V, then its net turn at BURST_W, each as one burst, starting where the prediction starts to move and
-    finished inside the frames the client plays; zero elsewhere. Below ABS_DEAD_M / ABS_DEAD_DEG: nothing."""
+    x gain at burst_v, then its net turn at burst_deg_s, each as one burst, starting where the prediction starts to
+    move (not before burst_start) and finished inside burst_exec frames (a gained step is cut to fit); zero
+    elsewhere. Below dead_m / dead_deg (the predicted step): nothing."""
     from cosmos_policy.datasets import sprout_icl_aug as A
+    V = BURST_V if burst_v is None else float(burst_v)
+    W = BURST_W if burst_deg_s is None else float(burst_deg_s)
+    E = BURST_EXEC if burst_exec is None else int(burst_exec)
+    S = BURST_START if burst_start is None else int(burst_start)
+    DM = ABS_DEAD_M if dead_m is None else float(dead_m)
+    DD = ABS_DEAD_DEG if dead_deg is None else float(dead_deg)
     n = len(b)
     bx, bq = A.head_pose_abs(b)
     c, s_ = np.cos(-q0), np.sin(-q0)
     rel = (bx - np.asarray(xy0)[None]) @ np.array([[c, s_], [-s_, c]])        # body frame of now
     dq = np.angle(np.exp(1j * (np.unwrap(np.r_[q0, bq])[1:] - q0)))
-    d, dyaw = rel[-1], dq[-1]
-    gain = BASE_XY_GAIN if np.linalg.norm(d) >= ABS_DEAD_M else 1.0       # the deadband on the predicted step
+    d0, dyaw = rel[-1], dq[-1]
     cmd = np.zeros((n, 9))
     cmd[:, 3] = cmd[:, 7] = 1.0
-    move = np.linalg.norm(d) >= ABS_DEAD_M
-    d = d * gain
-    turn = abs(np.degrees(dyaw)) >= ABS_DEAD_DEG
+    move = np.linalg.norm(d0) >= DM
+    turn = abs(np.degrees(dyaw)) >= DD
     if not (move or turn):
         return cmd
-    m_xy = int(np.ceil(np.linalg.norm(d) / BURST_V * A.FPS)) if move else 0
-    m_q = int(np.ceil(abs(np.degrees(dyaw)) / BURST_W * A.FPS)) if turn else 0
-    prog = np.maximum(np.linalg.norm(rel, axis=1) / max(np.linalg.norm(d) / gain, 1e-6) if move else 0,
+    E = min(E, n)
+    m_q = int(np.ceil(abs(np.degrees(dyaw)) / W * A.FPS)) if turn else 0
+    d = d0 * float(gain)
+    m_xy = int(np.ceil(np.linalg.norm(d) / V * A.FPS)) if move else 0
+    if move and gain > 1 and m_xy + m_q > E:                  # the gained step cut to what fits
+        m_xy = max(int(np.ceil(np.linalg.norm(d0) / V * A.FPS)), E - m_q)
+        d = d0 / np.linalg.norm(d0) * min(np.linalg.norm(d), m_xy * V / A.FPS)
+    prog = np.maximum(np.linalg.norm(rel, axis=1) / max(np.linalg.norm(d0), 1e-6) if move else 0,
                       np.abs(dq) / max(abs(dyaw), 1e-6) if turn else 0)
     t0 = int(np.argmax(prog >= 0.25))                                          # the predicted motion's start
-    t0 = max(t0, BURST_START)                                                  # after the client's crossfade
-    t0 = max(0, min(t0, min(BURST_EXEC, n) - (m_xy + m_q)))
+    t0 = max(t0, S)                                                            # after the client's crossfade
+    t0 = max(0, min(t0, E - (m_xy + m_q)))
     if move:
         v = d / m_xy * A.FPS                                                    # constant body-frame velocity
         cmd[t0:t0 + m_xy, 0:2] = v
@@ -440,8 +454,12 @@ def _abs_act(self, obs, options=None):
         from cosmos_policy.datasets import sprout_icl_aug as A
         xy, q = (np.zeros(2), 0.0) if BASE_REL else self.pose      # base_rel: the poses are relative to now
         b = np.asarray(res["base"][0], np.float64)
+        track = None
         if ABS_SMOOTH < 0:                 # bursts at the robot's base speed (it does not move below ~0.35 m/s)
-            cmd = burst_cmd(b, xy, q)
+            kw = {k: (options or {})[k] for k in BURST_KEYS if (options or {}).get(k) is not None}
+            gain = float((options or {}).get("xy_gain") or 1.0)
+            cmd = burst_cmd(b, xy, q, gain, **kw)
+            track = cmd if gain == 1.0 else burst_cmd(b, xy, q, 1.0, **kw)
         else:
             b = smooth_abs(b, xy, q)
             cmd = A.cmd_from_abs(b, xy, q)
@@ -450,6 +468,7 @@ def _abs_act(self, obs, options=None):
             cmd[:, :2] = 0.0                                  # a still base: the robot stands still between moves
             cmd[:, 3:9] = [1, 0, 0, 0, 1, 0]
         res["base"] = cmd.astype(np.float32)[None]
+        info["base_track"] = (cmd if track is None else track).astype(np.float32)
         info["pose"] = [float(xy[0]), float(xy[1]), float(np.degrees(q))]
     return res, info
 
