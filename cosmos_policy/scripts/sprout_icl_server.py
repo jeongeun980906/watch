@@ -372,6 +372,9 @@ ABS_DEAD_DEG = float(os.environ.get("SPROUT_ABS_DEAD_DEG", 5.0))    # less than 
 BURST_V = float(os.environ.get("SPROUT_BURST_V", 0.38))          # m/s, the robot's median base speed when it moves
 BURST_W = float(os.environ.get("SPROUT_BURST_DEG_S", 60.0))      # deg/s, its median turn rate
 BURST_EXEC = int(os.environ.get("SPROUT_BURST_EXEC", 24))        # frames of a chunk the client plays (its --replan)
+BURST_START = int(os.environ.get("SPROUT_BURST_START", 6))       # earliest burst frame: the client's chunk crossfade
+                                                                 # (--blend-s 0.4 s = 6 frames) also fades the base velocity
+BASE_XY_GAIN = float(os.environ.get("SPROUT_BASE_XY_GAIN", 1.0))  # bursts: the chunk's net step x this (1 = as predicted)
 
 
 def burst_cmd(b, xy0, q0):
@@ -385,17 +388,20 @@ def burst_cmd(b, xy0, q0):
     rel = (bx - np.asarray(xy0)[None]) @ np.array([[c, s_], [-s_, c]])        # body frame of now
     dq = np.angle(np.exp(1j * (np.unwrap(np.r_[q0, bq])[1:] - q0)))
     d, dyaw = rel[-1], dq[-1]
+    gain = BASE_XY_GAIN if np.linalg.norm(d) >= ABS_DEAD_M else 1.0       # the deadband on the predicted step
     cmd = np.zeros((n, 9))
     cmd[:, 3] = cmd[:, 7] = 1.0
     move = np.linalg.norm(d) >= ABS_DEAD_M
+    d = d * gain
     turn = abs(np.degrees(dyaw)) >= ABS_DEAD_DEG
     if not (move or turn):
         return cmd
     m_xy = int(np.ceil(np.linalg.norm(d) / BURST_V * A.FPS)) if move else 0
     m_q = int(np.ceil(abs(np.degrees(dyaw)) / BURST_W * A.FPS)) if turn else 0
-    prog = np.maximum(np.linalg.norm(rel, axis=1) / max(np.linalg.norm(d), 1e-6) if move else 0,
+    prog = np.maximum(np.linalg.norm(rel, axis=1) / max(np.linalg.norm(d) / gain, 1e-6) if move else 0,
                       np.abs(dq) / max(abs(dyaw), 1e-6) if turn else 0)
     t0 = int(np.argmax(prog >= 0.25))                                          # the predicted motion's start
+    t0 = max(t0, BURST_START)                                                  # after the client's crossfade
     t0 = max(0, min(t0, min(BURST_EXEC, n) - (m_xy + m_q)))
     if move:
         v = d / m_xy * A.FPS                                                    # constant body-frame velocity

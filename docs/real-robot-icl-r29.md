@@ -170,6 +170,8 @@ flags work too):
 | `--abs-smooth` | -1 | base out: -1 = robot-speed bursts, 0 = constant velocity to the chunk's end pose, N > 1 = N-frame mean, 1 = raw |
 | `--burst-v` / `--burst-deg-s` / `--burst-exec` | 0.38 / 60 / 24 | bursts: speed (m/s), turn rate (deg/s), frames the client plays (its `--replan`) |
 | `--abs-dead-m` / `--abs-dead-deg` | 0.05 / 5 | base out: no command when the chunk moves less |
+| `--burst-start` | 6 | bursts start at this frame or later: the client's chunk crossfade (`--blend-s`, 0.4 s = 6 frames) fades the base velocity too; 0 with the client's `--blend-s 0` |
+| `--base-xy-gain` | 1 | bursts: the predicted step (above the deadband) x this, e.g. 1.5 when the base moves too little |
 
 e.g. `EXP=..._r29rel_cfaug ./sprout_serve.sh <ckpt> --burst-v 0.35 --abs-dead-m 0.03`. The server prints the
 values it runs with (`[sprout-icl-r29] ...`).
