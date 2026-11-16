@@ -182,6 +182,7 @@ Client flags (`policy_icl_abs.py` / `policy_icl_rel.py`, on top of every `policy
 | `--demo-tag` / `--demo` | - / the pool's first | demo pool and its demo (e.g. `--demo-tag 0 --demo episode_13`) |
 | `--base-xy-gain` | 1 | the step sent to the base = the predicted one x this (longer at the same speed, inside `--replan`); the tracked pose keeps the predicted step |
 | `--track-min-v` | 0.3 | the tracked pose (ICL history) counts no step slower than this (m/s) |
+| `--track-min-deg-s` | 25 | ... and no turn slower than this (deg/s) |
 | `--burst-v` / `--burst-deg-s` | server (0.38 / 60) | step speed (m/s), turn rate (deg/s) |
 | `--burst-start` | server (6) | earliest burst frame; 0 with `--blend-s 0` |
 | `--base-dead-m` / `--base-dead-deg` | server (0.05 / 5) | no step / turn below this predicted one |
