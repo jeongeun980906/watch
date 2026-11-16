@@ -57,7 +57,7 @@ def main() -> None:
     I.BURST_START = a.burst_start
     sys.argv = sys.argv[:1] + rest
     mode = {-1: f"bursts {I.BURST_V:g} m/s, {I.BURST_W:g} deg/s from frame {I.BURST_START} inside {I.BURST_EXEC} frames "
-                f"(client options override), never earlier than predicted, after the gripper change ({I.GRIP_WAIT})", 0: "constant velocity",
+                f"(client options override), the whole chunk, after the gripper change ({I.GRIP_WAIT}, carry {I.CARRY})", 0: "constant velocity",
             1: "raw poses"}.get(I.ABS_SMOOTH, f"{I.ABS_SMOOTH}-frame mean")
     print(f"[sprout-icl-r29] retrieval: grip x{I.GRIP_W:g} base x{I.BASE_W:g} position x{I.POS_W:g}, idle hold "
           f"{I.IDLE_HOLD} ({I.IDLE_M:g} m) | base out: {mode}, deadband {I.ABS_DEAD_M:g} m / {I.ABS_DEAD_DEG:g} deg",

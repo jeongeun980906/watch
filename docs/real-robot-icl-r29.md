@@ -134,8 +134,9 @@ name: `_r29abs` or `_r29rel`. It takes the retargeted demo pools
 (`human_ghost_r29/`, `human_context_r29/<task>/tag<k>/` under `SPROUT_ROOT`), integrates the client's per-frame base
 commands into the start-frame torso pose for the model's state, and turns the predicted poses back into base
 velocity commands as the robot drives: the chunk's net step at 0.38 m/s, then its net turn at 60 deg/s, each one burst
-inside the frames the client plays and never earlier than predicted (what does not fit is left to the next chunk;
-the base waits for the chunk's predicted gripper change); none below 5 cm / 5 deg (the base does not move below ~0.35 m/s).
+inside the frames the client plays (earlier than predicted when it would not fit), but never before the chunk's
+predicted gripper change (release, then step back; what that cuts goes to the next chunk); none below 5 cm / 5 deg
+(the base does not move below ~0.35 m/s).
 `policy_icl_abs.py` and `policy_icl_rel.py` differ from `policy.py` in sending the base command of every frame in the ICL
 history and in their defaults `--mode sync --replan 24` (`policy.py`: `auto`): every chunk plays from its frame 0 for 24
 frames, the frames the server puts the base bursts in (`--burst-exec 24`); the arm holds for the inference (~0.7 s at
@@ -187,6 +188,7 @@ Client flags (`policy_icl_abs.py` / `policy_icl_rel.py`, on top of every `policy
 | `--burst-v` / `--burst-deg-s` | server (0.38 / 60) | step speed (m/s), turn rate (deg/s) |
 | `--burst-start` | server (6) | earliest burst frame; 0 with `--blend-s 0` |
 | `--grip-wait` / `--no-grip-wait` | on | the base moves only after the chunk's predicted gripper change (release, then step back) |
+| `--carry` / `--no-carry` | on | what the gripper wait cut is added to the next chunk's step / turn (less what that chunk predicts the same way) |
 | `--base-dead-m` / `--base-dead-deg` | server (0.05 / 5) | no step / turn below this predicted one |
 | `--mode` / `--replan` | sync / 24 | the bursts end inside `--replan` frames (sent as the server's burst_exec) |
  The server prints the
