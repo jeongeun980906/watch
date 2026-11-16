@@ -324,7 +324,6 @@ class IclPolicy(base.Policy):
                            band=a.band, floor=a.mono_floor, cap=a.mono_band)
         self.ins = ins
         self.pose, self.pose_t = (np.zeros(2), 0.0), 0.0
-        self.carry = (0.0, 0.0, 0.0)
         print(f"[sprout-icl] reset: {self.r.task} tag {self.r.tag}, pool {self.r.names()}, start "
               f"{self.r.names()[self.r.start]}", flush=True)
         return {"status": "ok", "pool": self.r.names(), "start": self.r.names()[self.r.start], "arm": self.r.arm}
@@ -378,35 +377,15 @@ BURST_START = int(os.environ.get("SPROUT_BURST_START", 6))       # earliest burs
 # Per request the client may override these (options: burst_v, burst_deg_s, burst_exec, burst_start, dead_m, dead_deg)
 # and ask for xy_gain: the step it SENDS is the predicted one x xy_gain (longer at the same speed, inside burst_exec);
 # info["base_track"] is the same burst without the gain: what the client keeps in the history (the tracked pose).
-BURST_KEYS = ("burst_v", "burst_deg_s", "burst_exec", "burst_start", "dead_m", "dead_deg", "grip_wait")  # + carry
-GRIP_WAIT = True       # bursts start only after the chunk's predicted gripper change (place, release, then step back)
-CARRY = True           # what the gripper wait cut is added to the next chunk's step / turn
-GRIP_EPS = 0.1         # a gripper change: the predicted gripper moves more than this over the frames played
-
-
-def grip_settle(res, E):
-    """The frame after the last predicted gripper change within the first E frames (0: none)."""
-    out = 0
-    for k in ("left_gripper", "right_gripper"):
-        if k not in res:
-            continue
-        g = np.asarray(res[k][0], np.float64).reshape(-1)[:E]
-        if len(g) > 1 and np.ptp(g) > GRIP_EPS:
-            lo, hi = g.min() + 0.1 * np.ptp(g), g.max() - 0.1 * np.ptp(g)
-            moving = np.nonzero((g > lo) & (g < hi))[0]               # frames in the middle 80 % of the change
-            if len(moving):
-                out = max(out, int(moving[-1]) + 2)
-    return out
+BURST_KEYS = ("burst_v", "burst_deg_s", "burst_exec", "burst_start", "dead_m", "dead_deg")
 
 
 def burst_cmd(b, xy0, q0, gain=1.0, burst_v=None, burst_deg_s=None, burst_exec=None, burst_start=None, dead_m=None,
-              dead_deg=None, not_before=0, extra=(0.0, 0.0, 0.0)):
-    """Predicted poses (n, 9) -> (base commands as the robot drives, what was left out). The chunk's net step (current
-    body frame; + extra: the previous chunk's left-out part) x gain goes at burst_v, then its net turn at burst_deg_s,
-    each as one burst inside the burst_exec frames the client plays: from where the prediction starts to move (not
-    before burst_start; earlier when it would not fit), but never before not_before (the predicted gripper change:
-    release, then step back). What does not fit after not_before is cut and returned as (dx, dy, dyaw), predicted,
-    without the gain. Below dead_m / dead_deg: nothing."""
+              dead_deg=None):
+    """Predicted poses (n, 9) -> base commands as the robot drives: the chunk's net step (in the current body frame)
+    x gain at burst_v, then its net turn at burst_deg_s, each as one burst, starting where the prediction starts to
+    move (not before burst_start) and finished inside burst_exec frames (a gained step is cut to fit); zero
+    elsewhere. Below dead_m / dead_deg (the predicted step): nothing."""
     from cosmos_policy.datasets import sprout_icl_aug as A
     V = BURST_V if burst_v is None else float(burst_v)
     W = BURST_W if burst_deg_s is None else float(burst_deg_s)
@@ -415,53 +394,38 @@ def burst_cmd(b, xy0, q0, gain=1.0, burst_v=None, burst_deg_s=None, burst_exec=N
     DM = ABS_DEAD_M if dead_m is None else float(dead_m)
     DD = ABS_DEAD_DEG if dead_deg is None else float(dead_deg)
     n = len(b)
-    E = max(1, min(E, n))
     bx, bq = A.head_pose_abs(b)
     c, s_ = np.cos(-q0), np.sin(-q0)
     rel = (bx - np.asarray(xy0)[None]) @ np.array([[c, s_], [-s_, c]])        # body frame of now
     dq = np.angle(np.exp(1j * (np.unwrap(np.r_[q0, bq])[1:] - q0)))
-    p0, pyaw = rel[-1], dq[-1]                                                  # the prediction alone
-    ex, eq = np.asarray(extra[:2], np.float64), float(extra[2])       # the left-out part, less what the prediction
-    if np.linalg.norm(ex) > 1e-6:                                       # already does in the same direction
-        u = ex / np.linalg.norm(ex)
-        ex = u * max(0.0, np.linalg.norm(ex) - max(0.0, float(p0 @ u)))
-    if abs(eq) > 1e-6:
-        eq = np.sign(eq) * max(0.0, abs(eq) - max(0.0, np.sign(eq) * pyaw))
-    d0, dyaw = p0 + ex, pyaw + eq
+    d0, dyaw = rel[-1], dq[-1]
     cmd = np.zeros((n, 9))
     cmd[:, 3] = cmd[:, 7] = 1.0
     move = np.linalg.norm(d0) >= DM
     turn = abs(np.degrees(dyaw)) >= DD
     if not (move or turn):
-        return cmd, (0.0, 0.0, 0.0)
+        return cmd
+    E = min(E, n)
+    m_q = int(np.ceil(abs(np.degrees(dyaw)) / W * A.FPS)) if turn else 0
     d = d0 * float(gain)
     m_xy = int(np.ceil(np.linalg.norm(d) / V * A.FPS)) if move else 0
-    m_q = int(np.ceil(abs(np.degrees(dyaw)) / W * A.FPS)) if turn else 0
-    pm, pt = np.linalg.norm(p0) >= 1e-3, abs(pyaw) >= 1e-3
-    prog = np.maximum(np.linalg.norm(rel, axis=1) / max(np.linalg.norm(p0), 1e-6) if pm else 0,
-                      np.abs(dq) / max(abs(pyaw), 1e-6) if pt else 0)
-    t0 = int(np.argmax(prog >= 0.25)) if (pm or pt) else 0                     # the predicted motion's start
-    t0 = max(t0, S)
-    t0 = min(t0, E - (m_xy + m_q))                                             # earlier when it would not fit ...
-    t0 = max(t0, int(not_before), 0)                                           # ... but not before the gripper change
-    room = E - t0
-    k_xy, k_q = m_xy, m_q
-    if m_xy + m_q > room:                                                       # cut to the frames left
-        f = max(room, 0) / (m_xy + m_q)
-        k_xy = int(np.floor(m_xy * f)) if move else 0
-        k_q = max(room, 0) - k_xy if turn else 0
-    fx = k_xy / m_xy if m_xy else 0.0
-    fq = k_q / m_q if m_q else 0.0
-    if k_xy:
-        cmd[t0:t0 + k_xy, 0:2] = d * fx / k_xy * A.FPS                          # constant body-frame velocity
-    if k_q:
-        step = dyaw * fq / k_q
-        a = t0 + k_xy
-        cmd[a:a + k_q, 3], cmd[a:a + k_q, 4] = np.cos(step), np.sin(step)
-        cmd[a:a + k_q, 6], cmd[a:a + k_q, 7] = -np.sin(step), np.cos(step)
-    left_xy = d0 * (1 - fx) if move else np.zeros(2)
-    left_q = dyaw * (1 - fq) if turn else 0.0
-    return cmd, (float(left_xy[0]), float(left_xy[1]), float(left_q))
+    if move and gain > 1 and m_xy + m_q > E:                  # the gained step cut to what fits
+        m_xy = max(int(np.ceil(np.linalg.norm(d0) / V * A.FPS)), E - m_q)
+        d = d0 / np.linalg.norm(d0) * min(np.linalg.norm(d), m_xy * V / A.FPS)
+    prog = np.maximum(np.linalg.norm(rel, axis=1) / max(np.linalg.norm(d0), 1e-6) if move else 0,
+                      np.abs(dq) / max(abs(dyaw), 1e-6) if turn else 0)
+    t0 = int(np.argmax(prog >= 0.25))                                          # the predicted motion's start
+    t0 = max(t0, S)                                                            # after the client's crossfade
+    t0 = max(0, min(t0, E - (m_xy + m_q)))
+    if move:
+        v = d / m_xy * A.FPS                                                    # constant body-frame velocity
+        cmd[t0:t0 + m_xy, 0:2] = v
+    if turn:
+        step = dyaw / m_q
+        a = t0 + m_xy
+        cmd[a:a + m_q, 3], cmd[a:a + m_q, 4] = np.cos(step), np.sin(step)
+        cmd[a:a + m_q, 6], cmd[a:a + m_q, 7] = -np.sin(step), np.cos(step)
+    return cmd
 
 
 def smooth_abs(b, xy0, q0, w=None):
@@ -494,15 +458,8 @@ def _abs_act(self, obs, options=None):
         if ABS_SMOOTH < 0:                 # bursts at the robot's base speed (it does not move below ~0.35 m/s)
             kw = {k: (options or {})[k] for k in BURST_KEYS if (options or {}).get(k) is not None}
             gain = float((options or {}).get("xy_gain") or 1.0)
-            wait = kw.pop("grip_wait", GRIP_WAIT)
-            E = int(kw.get("burst_exec", BURST_EXEC))
-            kw["not_before"] = grip_settle(res, E) if wait else 0
-            carry = bool((options or {}).get("carry", CARRY))
-            kw["extra"] = getattr(self, "carry", (0.0, 0.0, 0.0)) if carry else (0.0, 0.0, 0.0)
-            info["base_after"], info["base_carry"] = kw["not_before"], list(kw["extra"])
-            cmd, _ = burst_cmd(b, xy, q, gain, **kw)
-            track, left = burst_cmd(b, xy, q, 1.0, **kw)                # the tracked (ungained) burst
-            self.carry = left                                                # cut by the gripper wait: the next chunk's
+            cmd = burst_cmd(b, xy, q, gain, **kw)
+            track = cmd if gain == 1.0 else burst_cmd(b, xy, q, 1.0, **kw)
         else:
             b = smooth_abs(b, xy, q)
             cmd = A.cmd_from_abs(b, xy, q)
