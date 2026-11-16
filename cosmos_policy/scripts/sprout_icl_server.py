@@ -406,22 +406,23 @@ def burst_cmd(b, xy0, q0, gain=1.0, burst_v=None, burst_deg_s=None, burst_exec=N
     if not (move or turn):
         return cmd
     E = min(E, n)
-    m_q = int(np.ceil(abs(np.degrees(dyaw)) / W * A.FPS)) if turn else 0
+    # whole frames at exactly burst_v / burst_deg_s (the base ignores slower commands): the step / turn rounded to
+    # whole frames (<= half a frame off: 1.3 cm, 2 deg); never slower, as ceil + spreading made it (0.30 m/s at 8 cm)
+    m_q = max(1, int(round(abs(np.degrees(dyaw)) / W * A.FPS))) if turn else 0
     d = d0 * float(gain)
-    m_xy = int(np.ceil(np.linalg.norm(d) / V * A.FPS)) if move else 0
+    m_xy = max(1, int(round(np.linalg.norm(d) / V * A.FPS))) if move else 0
     if move and gain > 1 and m_xy + m_q > E:                  # the gained step cut to what fits
-        m_xy = max(int(np.ceil(np.linalg.norm(d0) / V * A.FPS)), E - m_q)
-        d = d0 / np.linalg.norm(d0) * min(np.linalg.norm(d), m_xy * V / A.FPS)
+        m_xy = max(max(1, int(round(np.linalg.norm(d0) / V * A.FPS))), E - m_q)
     prog = np.maximum(np.linalg.norm(rel, axis=1) / max(np.linalg.norm(d0), 1e-6) if move else 0,
                       np.abs(dq) / max(abs(dyaw), 1e-6) if turn else 0)
     t0 = int(np.argmax(prog >= 0.25))                                          # the predicted motion's start
     t0 = max(t0, S)                                                            # after the client's crossfade
     t0 = max(0, min(t0, E - (m_xy + m_q)))
     if move:
-        v = d / m_xy * A.FPS                                                    # constant body-frame velocity
+        v = d / np.linalg.norm(d) * V                                           # burst_v exactly, body frame
         cmd[t0:t0 + m_xy, 0:2] = v
     if turn:
-        step = dyaw / m_q
+        step = np.sign(dyaw) * np.radians(W) / A.FPS                            # burst_deg_s exactly
         a = t0 + m_xy
         cmd[a:a + m_q, 3], cmd[a:a + m_q, 4] = np.cos(step), np.sin(step)
         cmd[a:a + m_q, 6], cmd[a:a + m_q, 7] = -np.sin(step), np.cos(step)
