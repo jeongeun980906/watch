@@ -100,8 +100,14 @@ class EgoVerseRetV3StateDataset(EgoVerseRetV3Dataset):
                  no_future: bool = False, delta_target: bool = False,
                  blank_retrieval: bool = False, blank_video_slots: int = -1,
                  blank_retrieval_prob: float = 0.0, blank_retrieval_slots: int = 2,
-                 cap_ret_video: int = -1, **kw):
+                 cap_ret_video: int = -1, align_query_video: bool = False, **kw):
         super().__init__(*args, **kw)
+        # align_query_video: also emit the QUERY video as a separate clip for the Vid2Robot alignment losses
+        # (models/policy_video2world_model_align.py): align_video = [state frame | query video] (1 + 4g frames),
+        # its t_positions / slot_roles (query video in the RET_VIDEO role), the fine task class id (SigLIP
+        # same-class negatives are skipped) and align_valid (0 when the demo video is blank).
+        self.align_query_video = bool(align_query_video)
+        self._align_cls_id = {c: i for i, c in enumerate(sorted(set(self.wcls.tolist())))} if self.align_query_video else {}
         self.robust_state_stats = bool(robust_state_stats)
         # delta_target: emit DELTA action57 chunks (base _normalize + action57_stats.json) as
         # the GEN target / demo cond, and a SINGLE current state57 as proprio — instead of the
@@ -342,6 +348,20 @@ class EgoVerseRetV3StateDataset(EgoVerseRetV3Dataset):
         if fu:
             roles[2 + o + k + a:], tpos[2 + o + k + a:] = ROLE_FUTURE, NOW_S + dt_q * np.arange(1, g + 1)
 
+        if self.align_query_video:
+            assert q_video.shape[0] == NUM_DUPLICATES * g, (q_video.shape, g)
+            av = preprocess_image(np.concatenate([blank1, q_video], axis=0), final_image_size=S, normalize_images=False,
+                                  use_image_aug=aug, stronger_image_aug=aug)
+            align = {
+                "align_video": av,
+                "align_t_positions": np.concatenate([[NOW_S], NOW_S - dt_q * np.arange(g, 0, -1)]).astype(np.float32),
+                "align_slot_roles": np.array([ROLE_CUR_STATE] + [ROLE_RET_VIDEO] * g, np.int64),
+                "align_cls": self._align_cls_id[self.wcls[q]],
+                "align_valid": int(not (self.blank_retrieval or self.blank_ret_video or drop)),
+            }
+        else:
+            align = {}
+
         cls = self.wcls[q]
         cmd = f"{CLASS_TO_COMMAND.get(cls, CLASS_TO_COMMAND['other'])} [{self.wemb[q]}]"
         t5 = (torch.squeeze(self.t5_text_embeddings[cmd]) if cmd in self.t5_text_embeddings
@@ -388,4 +408,5 @@ class EgoVerseRetV3StateDataset(EgoVerseRetV3Dataset):
             "global_rollout_idx": -1, "value_function_return": float("-100"),
             "next_value_function_return": float("-100"),
             "next_action_chunk": q_state.copy(),
+            **align,
         }

@@ -1443,6 +1443,48 @@ cosmos_predict2p5_2b_egoverse_ret_v3_448_state_hawor_full_md_4node = _ret_448_ex
     pairs_name="pairs_hawor_md.npz", query_episode_set=f"{_HAWOR_MANIFEST}/query_eps_md.json")
 
 
+# ======================= Vid2Robot-style baseline, 4 nodes (y6hQ: novelty over Vid2Robot) =======================
+# The Vid2Robot recipe (arXiv 2403.12943) on the WATCH data and backbone: the demo (prompt) VIDEO and the current
+# image condition the policy, the action chunk is the ONLY generated slot -- no demo-action slot (no_ret_action)
+# and no future-video prediction (no_future). Layout [state | demo video k | current image | action]:
+# T = k + 3 (human k=23 -> 26, MimicDroid demo k=15 -> 18), num_conditional_frames = k + 2 (17..25).
+#   v2r       : that layout, flow loss only
+#   v2r_align : + the auxiliary alignment losses of Vid2Robot Sec. II-E: TCC (2) and the prompt-robot video SigLIP
+#               contrastive loss (3) between the demo video and the query video (models/policy_video2world_model_align.py;
+#               heads in networks/align_dit.py). The video-text loss (4) is left out: WATCH conditions on T5 text.
+# Data = WATCH v10 (pairs.npz, every query incl. the MimicDroid play episodes; EGOVERSE_V10_MANIFEST), launched like
+# the other 4-node mids (4 x 8 x 2 = global 64, 8K iters, _scaled_scheduler). Guide: docs/egoverse_vid2robot_4node.md
+from cosmos_policy.models.policy_video2world_model_align import CosmosPolicyRealRobotRetModelRectifiedFlowAlign  # noqa: E402
+from cosmos_policy.networks.align_dit import MinimalV1LVGDiTAlign  # noqa: E402
+
+_V2R_MODEL_OVERRIDE = {
+    **_V2_MODEL_OVERRIDE, "state_t": 26,
+    "min_num_conditional_frames": 17, "max_num_conditional_frames": 25,
+    "tokenizer": dict(chunk_duration=101),
+}
+_V2R_ALIGN_KW = dict(align_block=14, align_tcc_weight=1.0, align_vv_weight=1.0, align_tcc_temp=0.1)
+_V2R_ALIGN_MODEL_OVERRIDE = {
+    **_V2R_MODEL_OVERRIDE,
+    "net": dict(**_V2_MODEL_OVERRIDE["net"], _target_=MinimalV1LVGDiTAlign, **_V2R_ALIGN_KW),
+}
+
+
+def _v2r_4node(name, align):
+    e = _ret_448_experiment(
+        name, EgoVerseRetV3StateDataset, batch_size=2,
+        model_override=_V2R_ALIGN_MODEL_OVERRIDE if align else _V2R_MODEL_OVERRIDE,
+        max_iter=_REB4_ITER, scheduler=_scaled_scheduler(_REB4_ITER),
+        no_ret_action=True, no_future=True, align_query_video=align)
+    if align:
+        e["model"]["_target_"] = CosmosPolicyRealRobotRetModelRectifiedFlowAlign
+    return e
+
+
+cosmos_predict2p5_2b_egoverse_ret_v3_448_state_v2r_4node = _v2r_4node(
+    "cosmos_predict2p5_2b_egoverse_ret_v3_448_state_v2r_4node", align=False)
+cosmos_predict2p5_2b_egoverse_ret_v3_448_state_v2r_align_4node = _v2r_4node(
+    "cosmos_predict2p5_2b_egoverse_ret_v3_448_state_v2r_align_4node", align=True)
+
 ALL_EGOVERSE_RET_CONFIGS = [
     cosmos_predict2p5_2b_egoverse_ret_v2,
     cosmos_predict2p5_2b_egoverse_ret_v3,
@@ -1489,6 +1531,8 @@ ALL_EGOVERSE_RET_CONFIGS = [
     cosmos_predict2p5_2b_egoverse_ret_v3_448_state_hawor_pairs_nomd_4node,
     cosmos_predict2p5_2b_egoverse_ret_v3_448_state_hawor_full_nomd_4node,
     cosmos_predict2p5_2b_egoverse_ret_v3_448_state_hawor_full_md_4node,
+    cosmos_predict2p5_2b_egoverse_ret_v3_448_state_v2r_4node,
+    cosmos_predict2p5_2b_egoverse_ret_v3_448_state_v2r_align_4node,
     cosmos_predict2p5_2b_egoverse_ret_v3_448_state_conf50_q50_nomd_8k,
     cosmos_predict2p5_2b_egoverse_ret_short_v11,
     cosmos_predict2p5_2b_egoverse_ret_short_state_v11,

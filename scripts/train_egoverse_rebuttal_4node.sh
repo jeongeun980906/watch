@@ -14,6 +14,10 @@
 #   STAGE=hawor_full_md
 #                  cosmos_predict2p5_2b_egoverse_ret_v3_448_state_hawor_full_md_4node (hawor_full + MimicDroid play,
 #                  docs/egoverse_hawor_rgb_md.md), batch 2/GPU -> global 64, 8K iters
+#   STAGE=v2r | v2r_align
+#                  cosmos_predict2p5_2b_egoverse_ret_v3_448_state_${STAGE}_4node (Vid2Robot-style baseline: demo video +
+#                  current image -> action, no demo action, no future video; v2r_align adds TCC + video SigLIP,
+#                  docs/egoverse_vid2robot_4node.md), batch 2/GPU -> global 64, 8K iters
 #   STAGE=gr1      cosmos_predict2p5_2b_egoverse_gr1_ret_v6_448_state_${MID}_4node   (GR1 v6 ICL)
 #                  batch 3/GPU -> global 96, 4K iters on the 8K schedule (= reference 3 x 8 x 4, read at 4K)
 #   STAGE=pv0      cosmos_predict2p5_2b_tabletop_sim_5task_plain_end_a20_pv0_${MID}_4node
@@ -23,6 +27,7 @@
 #   randref: EGOVERSE_RANDREF_MANIFEST (v10-state manifest + pairs_randref.npz + query_eps_nomd.json), EGOVERSE_HUM_ROOT
 #   conf50:  EGOVERSE_CONF50_MANIFEST  (v10-state manifest + pairs_conf50_full.npz + query_eps_nomd.json), EGOVERSE_HUM_ROOT
 #   rematch/hawor_pairs: EGOVERSE_HAWOR_MANIFEST, EGOVERSE_HUM_ROOT (tracked); hawor_full(_md): + EGOVERSE_HAWOR_ROOT
+#   v2r/v2r_align: EGOVERSE_V10_MANIFEST (v10-state manifest with pairs.npz), EGOVERSE_HUM_ROOT (+ the 20 MimicDroid play episodes)
 #   gr1:     EGOVERSE_GR1_V6_MANIFEST, EGOVERSE_GR1_HUM_ROOT, GR1_BASE_CKPT (mid .pt @ 8K of the MID arm)
 #   pv0:     TABLETOP_RANDREF_DATA, TABLETOP_RANDREF_MANIFEST, TABLETOP_RANDREF_CKPT (mid .pt @ 8K of the MID arm)
 # Optional env:
@@ -82,6 +87,15 @@ case "$STAGE" in
     fi
     need_dir "$EGOVERSE_HUM_ROOT"
     export EGOVERSE_HAWOR_MANIFEST EGOVERSE_HUM_ROOT ;;
+  v2r|v2r_align)
+    EXP=cosmos_predict2p5_2b_egoverse_ret_v3_448_state_${STAGE}_4node; BATCH_SIZE=2; GBATCH=64
+    : "${EGOVERSE_V10_MANIFEST:?set EGOVERSE_V10_MANIFEST}"; : "${EGOVERSE_HUM_ROOT:?set EGOVERSE_HUM_ROOT}"
+    for f in windows.npz pairs.npz t5_embeddings.pkl action57_stats.json \
+             state57_stats.json state57_stats_staterobust.json; do need_file "$EGOVERSE_V10_MANIFEST/$f"; done
+    need_dir "$EGOVERSE_HUM_ROOT"
+    n=$(ls -d "$EGOVERSE_HUM_ROOT"/*__SinkEnvForPlay_D_demo_*/images.front_1 2>/dev/null | wc -l)
+    [ "$n" -eq 20 ] || { echo "[$STAGE] $n/20 MimicDroid play episodes with video in $EGOVERSE_HUM_ROOT" >&2; exit 1; }
+    export EGOVERSE_V10_MANIFEST EGOVERSE_HUM_ROOT ;;
   gr1)
     EXP=cosmos_predict2p5_2b_egoverse_gr1_ret_v6_448_state_${MID}_4node; BATCH_SIZE=3; GBATCH=96
     : "${EGOVERSE_GR1_V6_MANIFEST:?set EGOVERSE_GR1_V6_MANIFEST}"; : "${EGOVERSE_GR1_HUM_ROOT:?set EGOVERSE_GR1_HUM_ROOT}"
@@ -98,7 +112,7 @@ case "$STAGE" in
              state20_stats_pctl.json; do need_file "$TABLETOP_RANDREF_MANIFEST/$f"; done
     need_dir "$TABLETOP_RANDREF_DATA"; need_file "$TABLETOP_RANDREF_CKPT"
     export TABLETOP_RANDREF_DATA TABLETOP_RANDREF_MANIFEST TABLETOP_RANDREF_CKPT ;;
-  *) echo "STAGE must be randref, conf50, rematch, hawor_pairs, hawor_full, hawor_full_md, gr1 or pv0 (got $STAGE)" >&2; exit 1 ;;
+  *) echo "STAGE must be randref, conf50, rematch, hawor_pairs, hawor_full, hawor_full_md, v2r, v2r_align, gr1 or pv0 (got $STAGE)" >&2; exit 1 ;;
 esac
 
 cd "$(dirname "$0")/.."   # cosmos_policy repo root
