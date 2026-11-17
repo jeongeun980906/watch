@@ -376,7 +376,7 @@ The pv0 checkpoint is evaluated locally. Send the 8K `.pt` (~3.9 GB):
 | 3.1 | held-out wrist error median below ~60 mm per source; f in 250-350; wrist-frame residual after C below ~20 deg |
 | 3.2 | `converted N, failed 0`; mean coverage L/R ≥ 0.85; `$EGOVERSE_HAWOR_ROOT` has as many entries as `$EGOVERSE_HUM_ROOT` |
 | 4 | `finalize_manifest.py`: full query set present; ~14 refs/query, ~6 cross-source |
-| 5, 6 | pod log `$IMAGINAIRE_OUTPUT_ROOT/pod_logs/<stage>_<mid>_node0.log`: `Training with 32 GPUs.`, `global batch 64 / 96 / 384` (no `WARNING: global batch`) |
+| 5, 6 | pod log `$IMAGINAIRE_OUTPUT_ROOT/pod_logs/<stage>_<mid>_node0.log`: `Training with 32 GPUs.`, `global batch 64 / 96 / 384` |
 | 5 | dataset lines: `query_episode_set=query_eps_nomd.json: kept 13295/...`, `ROBUST state norm ... state57_stats_staterobust.json`; episodes read from `$EGOVERSE_HAWOR_ROOT` (first launcher lines) |
 | 5, 6 | LR: mid warmup 500 to 1e-4, 0.894e-4 at 8K; GR1 0.673e-4 at 4K; pv0 warmup 200, 0.5e-4 at 8K. Loss finite, iteration time stable |
 | 6 | post-trains load the mid `.pt` with no missing or unexpected keys |

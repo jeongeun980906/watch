@@ -1,4 +1,4 @@
-# Vid2Robot-style baseline: mid → standard post-trainings + eval (4-node groups)
+# Vid2Robot-style baseline: mid (8 nodes) → standard post-trainings + eval (4-node groups)
 
 A controlled comparison of the pre-training formulation. The mid is trained with the
 [Vid2Robot](https://arxiv.org/abs/2403.12943) recipe; backbone, training data and budget are those of WATCH. The
@@ -12,7 +12,7 @@ mid differs. Each post-train group runs its closed-loop eval on its own 4 nodes 
 
 | run | experiment | nodes |
 |---|---|---|
-| mid | `cosmos_predict2p5_2b_egoverse_ret_v3_448_state_v2r_align_4node` | 4 |
+| mid | `cosmos_predict2p5_2b_egoverse_ret_v3_448_state_v2r_align_4node` (the `_4node` name is kept) | 8 |
 | GR1 v6 ICL post + eval | `cosmos_predict2p5_2b_egoverse_gr1_ret_v6_448_state_v2r_align_4node` (standard recipe) | 4 |
 | Tabletop pv0 post + eval | `cosmos_predict2p5_2b_tabletop_sim_5task_plain_end_a20_pv0_v2r_align_4node` (standard recipe) | 4 |
 
@@ -22,7 +22,7 @@ is `[state | demo video k | current image | action]`: T = k + 3 (human 26, Mimic
 
 **Auxiliary losses** (Vid2Robot Sec. II-E (2) and (3), between the demo video and the query video of each pair):
 - TCC (temporal cycle consistency) on per-frame embeddings.
-- SigLIP on one embedding per video, gathered over all 32 GPUs. Pairs of the same fine task class are not used as
+- SigLIP on one embedding per video, gathered over all GPUs (the 64 videos of the global batch). Pairs of the same fine task class are not used as
   negatives.
 - Features: output of DiT block 14, averaged over the spatial tokens of each latent frame, then the heads in
   `net.align_heads`.
@@ -30,8 +30,9 @@ is `[state | demo video k | current image | action]`: T = k + 3 (human 26, Mimic
 - Weights: TCC 1.0, SigLIP 1.0, TCC temperature 0.1.
 - The video-text loss (4) is not used, because WATCH already conditions on T5 text.
 
-**Mid data and budget:** WATCH v10 (`pairs.npz`, every query including the 20 MimicDroid play episodes), 4 x 8 x 2 =
-global 64, 8K iterations.
+**Mid data and budget:** WATCH v10 (`pairs.npz`, every query including the 20 MimicDroid play episodes), global
+batch 64, 8K iterations, the LR schedule of the WATCH v10 mid. On 8 nodes this is 8 x 8 x 1 (the WATCH mid ran
+4 x 8 x 2); the launcher derives the per-GPU batch from `NNODES`.
 
 **Transfer to the standard post layout.** Position comes from the slot timestamps (continuous-time RoPE,
 `t_positions`) and the slot role embeddings, not from the slot index. The mid's slots therefore have the same role and
@@ -60,10 +61,11 @@ the `.pt` warm start is strict=False.
 | step | section | nodes | time |
 |---|---|---|---|
 | 1. setup: MimicDroid play episodes, GR1 eval, Tabletop-Sim | 1 | 1 | ~30 min |
-| 2. mid | 2 | 4 | ~15-17 h |
+| 2. mid | 2 | 8 | ~9-10 h |
 | 3. GR1 post + eval, pv0 post + eval, at once | 3 | 2 x 4 = 8 | GR1 ~5 h + eval ~3 h; pv0 ~7 h + eval ~1 h |
 
-Each group runs on its own; the GR1 eval does not wait for the pv0 training.
+The 8 nodes of the mid are then split into the two 4-node groups of step 3. Each group runs on its own; the GR1 eval
+does not wait for the pv0 training.
 
 **Starting point:** the cluster setup of the randref / conf50 4-node runs: data, training environment, base checkpoint in
 the HF cache, GR1 and Tabletop post-training data.
@@ -170,7 +172,7 @@ cd $WATCH && CKPT=<a pv0 .pt> EXP=cosmos_predict2p5_2b_tabletop_sim_5task_plain_
 
 ---
 
-## 2. Mid-training (one 4-node group)
+## 2. Mid-training (8 nodes)
 
 ```bash
 cd $WATCH && source .venv/bin/activate && export WANDB_MODE=online    # or offline / disabled
@@ -180,7 +182,7 @@ cd $WATCH && source .venv/bin/activate && export WANDB_MODE=online    # or offli
 
 ```bash
 IMAGINAIRE_OUTPUT_ROOT=$RUNS/v2r_smoke EXTRA_OVERRIDES="trainer.max_iter=20 checkpoint.save_iter=20" \
-  MASTER_ADDR=<node 0> MASTER_PORT=12346 STAGE=v2r_align NODE_RANK=<0..3> bash scripts/train_egoverse_rebuttal_4node.sh
+  MASTER_ADDR=<node 0> MASTER_PORT=12346 NNODES=8 STAGE=v2r_align NODE_RANK=<0..7> bash scripts/train_egoverse_rebuttal_4node.sh
 rm -rf $RUNS/v2r_smoke
 ```
 
@@ -191,10 +193,12 @@ The log prints a line every 50 iterations (the first at iteration 0):
 
 ```bash
 MASTER_ADDR=<node 0> MASTER_PORT=12346 IMAGINAIRE_OUTPUT_ROOT=$RUNS/egoverse_ret_v3_448_state_v2r_align_4node \
-  STAGE=v2r_align NODE_RANK=<0..3> bash scripts/train_egoverse_rebuttal_4node.sh
+  NNODES=8 STAGE=v2r_align NODE_RANK=<0..7> bash scripts/train_egoverse_rebuttal_4node.sh
 ```
 
-To resume after a crash, launch again with the same `IMAGINAIRE_OUTPUT_ROOT` and node count.
+The first line must read `batch 1/GPU  global batch 64`. To resume after a crash, launch again with the same
+`IMAGINAIRE_OUTPUT_ROOT` and `NNODES=8`. On 4 nodes (`NNODES=4`) the same command runs at batch 2/GPU, with the same
+global batch.
 
 ### 2.3 Convert to `.pt`
 
@@ -247,9 +251,9 @@ with `EVAL_ONLY=1` instead of `EVAL=1`. To redo only some GR1 atoms or Tabletop 
 | after | check |
 |---|---|
 | 1 | 20 MimicDroid episodes with video; GR1 eval setup of §1 of the eval guide; Tabletop-Sim check prints the 4 cameras |
-| 2, 3 | pod log `$IMAGINAIRE_OUTPUT_ROOT/pod_logs/<stage>_<mid>_node0.log`: `Training with 32 GPUs.`, `global batch 64 / 96 / 384` (no `WARNING: global batch`) |
+| 2, 3 | pod log `$IMAGINAIRE_OUTPUT_ROOT/pod_logs/<stage>_<mid>_node0.log`: mid `Training with 64 GPUs.`, `batch 1/GPU  global batch 64`; GR1 / pv0 `Training with 32 GPUs.`, `global batch 96` / `384` |
 | 2 | dataset line `[EgoVerseRetDataset] pairs=1045007`; LR warmup 500 to 1e-4, 0.894e-4 at 8K; loss finite, iteration time stable |
-| 2 | `[align]` lines: `valid` mostly `2/2`; `tcc` falls from ~0.09 (uniform-alignment level); `vv` falls from ~0.7 |
+| 2 | `[align]` lines: `valid` mostly `1/1` (one sample per GPU); `tcc` falls from ~0.09 (uniform-alignment level); `vv` falls from ~0.7 |
 | 3 | both load `$MIDPT`; GR1 `state_t=20`, pv0 `state_t=8` (the standard layouts) |
 | 3 (eval) | GR1 `atoms 37/37`, no `ATOM FAILED`; Tabletop every task `/50` (no `INCOMPLETE`), no `job FAILED`; every Tabletop `server.log` prints `latent contract: PLAIN_END+PER_VIEW(nb=0) ... state_t=8` |
 

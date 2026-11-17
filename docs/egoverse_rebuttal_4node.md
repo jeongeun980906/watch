@@ -209,8 +209,8 @@ After training, convert with `convert_dcp_to_pt.py --tag <experiment> --iter 400
 
 In `$IMAGINAIRE_OUTPUT_ROOT/pod_logs/<stage>_<mid>_node0.log`:
 
-1. `Training with 32 GPUs.` and, from the launcher, `global batch 64` (mids), `96` (GR1) or `384` (pv0). A
-   `WARNING: global batch ...` line means the node count or `NPROC_PER_NODE` is not 4 x 8.
+1. `Training with 32 GPUs.` and, from the launcher, `global batch 64` (mids), `96` (GR1) or `384` (pv0). The launcher
+   sets the per-GPU batch to global batch / GPUs and stops if the GPU count does not divide it.
 2. Dataset lines (rank 0):
    ```
    mids : [EgoVerseRetDataset] query_episode_set=query_eps_nomd.json: kept 13295/13315 episodes, 1028812/1045007 rows
