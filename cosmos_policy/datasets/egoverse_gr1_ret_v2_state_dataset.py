@@ -75,7 +75,13 @@ class EgoVerseGr1RetV2StateDataset(EgoVerseGr1RetV2Dataset):
     def __init__(self, *args, robust_state_stats: bool = ROBUST_STATE_NORM,
                  target_group: str | None = None, target_stats_path: str | None = None,
                  no_ret_action: bool = False, no_future: bool = False,
-                 ret_action_noise_std: float = 0.0, **kw):
+                 ret_action_noise_std: float = 0.0, align_query_video: bool = False, **kw):
+        # align_query_video: also emit the QUERY clip for the Vid2Robot alignment losses
+        # (models/policy_video2world_model_align.py), as EgoVerseRetV3StateDataset does:
+        # align_video = [state frame | query clip 32f] (9 latents), its t_positions / slot_roles
+        # (query clip in the RET_VIDEO role, same times as the demo block), the task class id
+        # (SigLIP same-class negatives are skipped) and align_valid (0 without a retrieved demo).
+        self.align_query_video = bool(align_query_video)
         # ret_action_noise_std: ROBUSTNESS AUG. When >0, perturb the (already
         # normalized ~[-1,1]) retrieved_actions conditioning with Gaussian noise
         # whose sigma is drawn per-sample from U(0, ret_action_noise_std). Trains
@@ -256,6 +262,20 @@ class EgoVerseGr1RetV2StateDataset(EgoVerseGr1RetV2Dataset):
         t5 = (torch.squeeze(self.t5_text_embeddings[cls]) if cls in self.t5_text_embeddings
               else torch.zeros(512, 1024))
 
+        align = {}
+        if self.align_query_video:
+            if not hasattr(self, "_align_cls_id"):
+                self._align_cls_id = {c: i for i, c in enumerate(sorted(set(self.wcls.tolist())))}
+            assert q_clip.shape[0] == K * NUM_DUPLICATES, (q_clip.shape, K)
+            align = {
+                "align_video": preprocess_image(np.concatenate([blank1, q_clip], axis=0), final_image_size=S,
+                                                normalize_images=False, use_image_aug=aug, stronger_image_aug=aug),
+                "align_t_positions": np.concatenate([[NOW_S], NOW_S - DT * np.arange(K, 0, -1)]).astype(np.float32),
+                "align_slot_roles": np.array([ROLE_CUR_STATE] + [ROLE_RET_VIDEO] * K, np.int64),
+                "align_cls": self._align_cls_id[str(cls)],
+                "align_valid": int(has_ret),
+            }
+
         return {
             "video": images,
             "command": str(cls),
@@ -296,4 +316,5 @@ class EgoVerseGr1RetV2StateDataset(EgoVerseGr1RetV2Dataset):
             "global_rollout_idx": -1, "value_function_return": float("-100"),
             "next_value_function_return": float("-100"),
             "next_action_chunk": q_tgt.copy().astype(np.float32),
+            **align,
         }

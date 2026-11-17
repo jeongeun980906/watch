@@ -12,6 +12,7 @@
 #   MODE=cert  ...    # 4 seen tasks x 3 demos x 10 ep = 12 atoms  (quick certification)
 #   MODE=full  ...    # 12 tasks / 37 atoms x 10 ep              (baseline-comparable)
 #   GPUS="0 1" PORT0=8700 MPORT0=29600 ...
+#   SERVER_MOD=eval_gr1_server_v2r ...   # server module for a non-default layout (eval_gr1_server_actonly, ...)
 #
 # ⚠️ Two arms at once (e.g. q25 vs baseline) MUST get different PORT0 *and* MPORT0 —
 #    torch.distributed binds MASTER_PORT even for WORLD_SIZE=1, so a shared MPORT0 makes
@@ -116,6 +117,7 @@ for spec in "${TASKS_SPEC[@]}"; do
 done
 [ -s "$QF" ] || { echo "ERROR: 큐가 비었다 — ONLY_TASKS='${ONLY_TASKS:-}' ONLY_DEMOS='${ONLY_DEMOS:-}' 가 MODE=$MODE 와 겹치지 않는다" >&2; exit 1; }
 echo "[eval] exp=$EXP"
+echo "[eval] server=${SERVER_MOD:-eval_gr1_server}"
 echo "[eval] ckpt=$CK"
 echo "[eval] mode=$MODE  atoms=$(wc -l < "$QF")  gpus='$GPUS'  out=$OUT"
 
@@ -167,7 +169,7 @@ worker() {
   HF_HOME=${HF_HOME:-/mnt/ddn/hf_cache} HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 \
   CUDA_VISIBLE_DEVICES=$g RANK=0 WORLD_SIZE=1 LOCAL_RANK=0 \
   MASTER_ADDR=127.0.0.1 MASTER_PORT=$mport \
-  .venv/bin/python -m cosmos_policy.scripts.eval_gr1_server \
+  .venv/bin/python -m cosmos_policy.scripts.${SERVER_MOD:-eval_gr1_server} \
     --checkpoint "$CK" --experiment "$EXP" \
     --pred-target abs_action57 --resolution 448 \
     --pinned-advance mono --pin-lock-ep --mono-floor 8 \

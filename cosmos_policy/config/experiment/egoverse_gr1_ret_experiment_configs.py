@@ -727,6 +727,40 @@ for _tag in ("randref", "conf50", "rematch", "hawor_pairs", "hawor_full", "hawor
     _e["job"]["name"] = _n
     globals()[_n] = _e
 
+# Vid2Robot-style post-trains from the v2r_align mid (cosmos_predict2p5_2b_egoverse_ret_v3_448_state_v2r_align_4node
+# @ 8K; docs/egoverse_vid2robot_4node.md). Same 4-node recipe as above (global 96, 4K on the 8K schedule) and the
+# same auxiliary losses as the mid (TCC + video SigLIP between the demo clip and the query clip; heads carried
+# over from the mid .pt). Both drop the FUTURE_VIDEO block (action is the only generated slot); they differ only
+# in the demo conditioning:
+#   _v2r_align_4node    demo VIDEO only (the mid's layout)      T = K+3 = 11, num_conditional 10, chunk 41
+#   _v2r_align_ra_4node demo VIDEO + demo ACTION (slot added)    T = K+4 = 12, num_conditional 11, chunk 45
+# Eval servers: eval_gr1_server_v2r (video only) / eval_gr1_server_actonly (video + action, same layout as _actonly).
+from cosmos_policy.models.policy_video2world_model_align import (  # noqa: E402
+    CosmosPolicyRealRobotRetModelRectifiedFlowAlign,
+)
+from cosmos_policy.networks.align_dit import MinimalV1LVGDiTAlign  # noqa: E402
+
+_V2R_ALIGN_NET_KW = dict(align_block=14, align_tcc_weight=1.0, align_vv_weight=1.0, align_tcc_temp=0.1)
+for _n, _ra in (("cosmos_predict2p5_2b_egoverse_gr1_ret_v6_448_state_v2r_align_4node", False),
+                ("cosmos_predict2p5_2b_egoverse_gr1_ret_v6_448_state_v2r_align_ra_4node", True)):
+    _e = _copy_conf50.deepcopy(cosmos_predict2p5_2b_egoverse_gr1_ret_v6_448_state_randref_4node)  # noqa: F821
+    _e["checkpoint"]["load_path"] = (
+        "${oc.env:GR1_BASE_CKPT,/mnt/ddn/tmp/egoverse_ret_v3_448_state_v2r_align_4node/cosmos_policy/"
+        "cosmos_v2_finetune/cosmos_predict2p5_2b_egoverse_ret_v3_448_state_v2r_align_4node/checkpoints/model_000008000.pt}")
+    _e["model"]["_target_"] = CosmosPolicyRealRobotRetModelRectifiedFlowAlign
+    _T = 12 if _ra else 11
+    _e["model"]["config"].update(
+        state_t=_T, min_num_conditional_frames=_T - 1, max_num_conditional_frames=_T - 1,
+        tokenizer=dict(chunk_duration=1 + 4 * (_T - 1)),
+        net=dict(use_crossattn_projection=False, crossattn_emb_channels=1024,
+                 _target_=MinimalV1LVGDiTAlign, **_V2R_ALIGN_NET_KW))
+    for _ds in (_e["dataloader_train"]["dataset"], _e["dataloader_train"]["sampler"]["dataset"]):
+        _ds["no_future"] = True
+        _ds["no_ret_action"] = not _ra
+        _ds["align_query_video"] = True
+    _e["job"]["name"] = _n
+    globals()[_n] = _e
+
 # 2x-POOL post-train (2026-07-29): IDENTICAL to ..._v6_448_state, but the retrieval
 # demo pool is TEMPORALLY 2x-sped (dthdemo_*__2x / taskdemo_*__2x). Query/target are
 # unchanged 1x GR1 (abs_action57). Matching descriptor = no-velocity pos+rot+grip
@@ -1819,6 +1853,8 @@ ALL_EGOVERSE_GR1_RET_CONFIGS = [
     cosmos_predict2p5_2b_egoverse_gr1_ret_v6_448_state_hawor_pairs_4node,  # noqa: F821
     cosmos_predict2p5_2b_egoverse_gr1_ret_v6_448_state_hawor_full_4node,  # noqa: F821
     cosmos_predict2p5_2b_egoverse_gr1_ret_v6_448_state_hawor_full_md_4node,  # noqa: F821
+    cosmos_predict2p5_2b_egoverse_gr1_ret_v6_448_state_v2r_align_4node,  # noqa: F821
+    cosmos_predict2p5_2b_egoverse_gr1_ret_v6_448_state_v2r_align_ra_4node,  # noqa: F821
     cosmos_predict2p5_2b_egoverse_gr1_ret_v6_2x_448_state,
     cosmos_predict2p5_2b_egoverse_gr1_ret_v6_2x_448_state_base,
     cosmos_predict2p5_2b_egoverse_gr1_ret_v6_448_state_vidonly,

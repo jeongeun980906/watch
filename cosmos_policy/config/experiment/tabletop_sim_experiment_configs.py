@@ -956,10 +956,12 @@ for _tag, _mid, _it in (("conf50", "conf50_nomd_15k", 15_000), ("conf50_q50", "c
 # (8K iters, cycle 8K, warmup 200, save every 1,600). TABLETOP_RANDREF_CKPT overrides the warm-start path.
 # rematch / hawor_pairs / hawor_full: the RGB-only-hand mids (docs/egoverse_hawor_rgb.md), same recipe.
 # hawor_full_md: hawor_full with the MimicDroid play episodes (docs/egoverse_hawor_rgb_md.md); its mid has no _nomd.
-_PV0_4NODE_TAGS = ("randref", "conf50", "rematch", "hawor_pairs", "hawor_full", "hawor_full_md")
+# v2r_align: the Vid2Robot-style mid (docs/egoverse_vid2robot_4node.md); no _nomd either. Its .pt carries the
+# align_heads.* keys, which this plain net ignores (strict=False warm start).
+_PV0_4NODE_TAGS = ("randref", "conf50", "rematch", "hawor_pairs", "hawor_full", "hawor_full_md", "v2r_align")
 for _tag in _PV0_4NODE_TAGS:
     _name = f"cosmos_predict2p5_2b_tabletop_sim_5task_plain_end_a20_pv0_{_tag}_4node"
-    _mid = f"{_tag}_4node" if _tag.endswith("_md") else f"{_tag}_nomd_4node"
+    _mid = f"{_tag}_4node" if (_tag.endswith("_md") or _tag.startswith("v2r")) else f"{_tag}_nomd_4node"
     _ck = (f"${{oc.env:TABLETOP_RANDREF_CKPT,/mnt/ddn/tmp/egoverse_ret_v3_448_state_{_tag}_4node/"
            f"cosmos_policy/cosmos_v2_finetune/cosmos_predict2p5_2b_egoverse_ret_v3_448_state_{_mid}/"
            f"checkpoints/model_000008000.pt}}")
