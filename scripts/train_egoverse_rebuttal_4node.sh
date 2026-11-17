@@ -18,12 +18,16 @@
 #                  cosmos_predict2p5_2b_egoverse_ret_v3_448_state_${STAGE}_4node (Vid2Robot-style baseline: demo video +
 #                  current image -> action, no demo action, no future video; v2r_align adds TCC + video SigLIP,
 #                  docs/egoverse_vid2robot_4node.md), global 64, 8K iters: NNODES=4 -> batch 2/GPU, NNODES=8 -> 1/GPU
+#                  v2r_align with NNODES=16: ..._v2r_align_16node, global 128, 4K iters (a different recipe,
+#                  docs/egoverse_vid2robot_16node.md)
 #   The per-GPU batch is GBATCH / (NNODES x NPROC_PER_NODE); a node count that does not divide it is an error
-#   (gr1: 4 nodes only; pv0: 4 or 8).
+#   (gr1: 4 nodes, or 8 for MID=v2r_align / v2r_align16 = the 8-node config; pv0: 4 or 8).
 #   STAGE=gr1      cosmos_predict2p5_2b_egoverse_gr1_ret_v6_448_state_${MID}_4node   (GR1 v6 ICL)
 #                  batch 3/GPU -> global 96, 4K iters on the 8K schedule (= reference 3 x 8 x 4, read at 4K)
+#                  NNODES=8 (MID v2r_align / v2r_align16): ..._${MID}_8node, global 128, 3K iters (a different
+#                  recipe, docs/egoverse_vid2robot_16node.md); the eval reads iteration 3000
 #   STAGE=pv0      cosmos_predict2p5_2b_tabletop_sim_5task_plain_end_a20_pv0_${MID}_4node
-#                  batch 12/GPU -> global 384, 8K iters (= reference 3 x 8 x 16)
+#                  batch 12/GPU -> global 384, 8K iters (= reference 3 x 8 x 16); NNODES=8: batch 6/GPU, same recipe
 #
 # Required env (all stages): IMAGINAIRE_OUTPUT_ROOT, MASTER_ADDR, NODE_RANK
 #   randref: EGOVERSE_RANDREF_MANIFEST (v10-state manifest + pairs_randref.npz + query_eps_nomd.json), EGOVERSE_HUM_ROOT
@@ -44,8 +48,8 @@ set -euo pipefail
 
 STAGE=${STAGE:-randref}
 MID=${MID:-randref}
-case "$MID" in randref|conf50|rematch|hawor_pairs|hawor_full|hawor_full_md|v2r_align) ;;
-  *) echo "MID must be randref, conf50, rematch, hawor_pairs, hawor_full, hawor_full_md or v2r_align (got $MID)" >&2; exit 1 ;; esac
+case "$MID" in randref|conf50|rematch|hawor_pairs|hawor_full|hawor_full_md|v2r_align|v2r_align16) ;;
+  *) echo "MID must be randref, conf50, rematch, hawor_pairs, hawor_full, hawor_full_md, v2r_align or v2r_align16 (got $MID)" >&2; exit 1 ;; esac
 NNODES=${NNODES:-4}
 NPROC_PER_NODE=${NPROC_PER_NODE:-8}
 MASTER_PORT=${MASTER_PORT:-12341}
@@ -95,6 +99,9 @@ case "$STAGE" in
   v2r|v2r_align)
     EXP=cosmos_predict2p5_2b_egoverse_ret_v3_448_state_${STAGE}_4node; GBATCH=64
     SAMPLER_BS=1                                    # BucketedDistributedSampler: its batch_size must match the loader's
+    if [ "$STAGE" = v2r_align ] && [ "$NNODES" = 16 ]; then
+      EXP=cosmos_predict2p5_2b_egoverse_ret_v3_448_state_v2r_align_16node; GBATCH=128
+    fi
     : "${EGOVERSE_V10_MANIFEST:?set EGOVERSE_V10_MANIFEST}"; : "${EGOVERSE_HUM_ROOT:?set EGOVERSE_HUM_ROOT}"
     for f in windows.npz pairs.npz t5_embeddings.pkl action57_stats.json \
              state57_stats.json state57_stats_staterobust.json; do need_file "$EGOVERSE_V10_MANIFEST/$f"; done
@@ -104,6 +111,11 @@ case "$STAGE" in
     export EGOVERSE_V10_MANIFEST EGOVERSE_HUM_ROOT ;;
   gr1)
     EXP=cosmos_predict2p5_2b_egoverse_gr1_ret_v6_448_state_${MID}_4node; GBATCH=96
+    if [ "$NNODES" = 8 ]; then
+      case "$MID" in v2r_align|v2r_align16) ;; *) echo "[gr1] 8 nodes: only MID=v2r_align or v2r_align16" >&2; exit 1 ;; esac
+      EXP=cosmos_predict2p5_2b_egoverse_gr1_ret_v6_448_state_${MID}_8node; GBATCH=128
+      export EVAL_ITER=${EVAL_ITER:-3000}
+    fi
     : "${EGOVERSE_GR1_V6_MANIFEST:?set EGOVERSE_GR1_V6_MANIFEST}"; : "${EGOVERSE_GR1_HUM_ROOT:?set EGOVERSE_GR1_HUM_ROOT}"
     : "${GR1_BASE_CKPT:?set GR1_BASE_CKPT (mid .pt)}"
     for f in windows.npz pairs.npz t5_embeddings.pkl action57_stats.json state57_stats_pctl.json \

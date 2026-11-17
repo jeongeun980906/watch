@@ -1485,6 +1485,19 @@ cosmos_predict2p5_2b_egoverse_ret_v3_448_state_v2r_4node = _v2r_4node(
 cosmos_predict2p5_2b_egoverse_ret_v3_448_state_v2r_align_4node = _v2r_4node(
     "cosmos_predict2p5_2b_egoverse_ret_v3_448_state_v2r_align_4node", align=True)
 
+# 16-node variant (docs/egoverse_vid2robot_16node.md). NOT the WATCH-mid recipe: 128 GPUs cannot hold global 64,
+# so it runs 16 x 8 x 1 = global 128 for 4K iterations (the same 512K samples). The schedule is the 8K one in
+# samples: warmup 250, decay cycle 25K, i.e. step s here has the LR of step 2s of ..._v2r_align_4node. Peak LR
+# unchanged (no batch-size LR scaling).
+cosmos_predict2p5_2b_egoverse_ret_v3_448_state_v2r_align_16node = _v2r_4node(
+    "cosmos_predict2p5_2b_egoverse_ret_v3_448_state_v2r_align_16node", align=True)
+cosmos_predict2p5_2b_egoverse_ret_v3_448_state_v2r_align_16node["dataloader_train"]["batch_size"] = 1
+cosmos_predict2p5_2b_egoverse_ret_v3_448_state_v2r_align_16node["dataloader_train"]["sampler"]["batch_size"] = 1
+cosmos_predict2p5_2b_egoverse_ret_v3_448_state_v2r_align_16node["trainer"]["max_iter"] = 4_000
+cosmos_predict2p5_2b_egoverse_ret_v3_448_state_v2r_align_16node["scheduler"] = {
+    **_SCHEDULER, "cycle_lengths": [_SCHEDULER["cycle_lengths"][0] // 2, _SCHEDULER["cycle_lengths"][1]],
+    "warm_up_steps": [_SCHEDULER["warm_up_steps"][0] // 2, 0]}
+
 ALL_EGOVERSE_RET_CONFIGS = [
     cosmos_predict2p5_2b_egoverse_ret_v2,
     cosmos_predict2p5_2b_egoverse_ret_v3,
@@ -1533,6 +1546,7 @@ ALL_EGOVERSE_RET_CONFIGS = [
     cosmos_predict2p5_2b_egoverse_ret_v3_448_state_hawor_full_md_4node,
     cosmos_predict2p5_2b_egoverse_ret_v3_448_state_v2r_4node,
     cosmos_predict2p5_2b_egoverse_ret_v3_448_state_v2r_align_4node,
+    cosmos_predict2p5_2b_egoverse_ret_v3_448_state_v2r_align_16node,
     cosmos_predict2p5_2b_egoverse_ret_v3_448_state_conf50_q50_nomd_8k,
     cosmos_predict2p5_2b_egoverse_ret_short_v11,
     cosmos_predict2p5_2b_egoverse_ret_short_state_v11,

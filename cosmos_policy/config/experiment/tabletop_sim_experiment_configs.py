@@ -958,13 +958,19 @@ for _tag, _mid, _it in (("conf50", "conf50_nomd_15k", 15_000), ("conf50_q50", "c
 # hawor_full_md: hawor_full with the MimicDroid play episodes (docs/egoverse_hawor_rgb_md.md); its mid has no _nomd.
 # v2r_align: the Vid2Robot-style mid (docs/egoverse_vid2robot_4node.md); no _nomd either. Its .pt carries the
 # align_heads.* keys, which this plain net ignores (strict=False warm start).
-_PV0_4NODE_TAGS = ("randref", "conf50", "rematch", "hawor_pairs", "hawor_full", "hawor_full_md", "v2r_align")
+# v2r_align16: the same pv0 from the 16-node mid (..._v2r_align_16node @ 4K, docs/egoverse_vid2robot_16node.md).
+# On 8 nodes the launcher runs these at batch 6/GPU: still global 384, so the recipe is unchanged.
+_PV0_4NODE_TAGS = ("randref", "conf50", "rematch", "hawor_pairs", "hawor_full", "hawor_full_md", "v2r_align",
+                   "v2r_align16")
 for _tag in _PV0_4NODE_TAGS:
     _name = f"cosmos_predict2p5_2b_tabletop_sim_5task_plain_end_a20_pv0_{_tag}_4node"
     _mid = f"{_tag}_4node" if (_tag.endswith("_md") or _tag.startswith("v2r")) else f"{_tag}_nomd_4node"
-    _ck = (f"${{oc.env:TABLETOP_RANDREF_CKPT,/mnt/ddn/tmp/egoverse_ret_v3_448_state_{_tag}_4node/"
+    _dir, _it = f"{_tag}_4node", 8_000
+    if _tag == "v2r_align16":
+        _dir = _mid = "v2r_align_16node"; _it = 4_000
+    _ck = (f"${{oc.env:TABLETOP_RANDREF_CKPT,/mnt/ddn/tmp/egoverse_ret_v3_448_state_{_dir}/"
            f"cosmos_policy/cosmos_v2_finetune/cosmos_predict2p5_2b_egoverse_ret_v3_448_state_{_mid}/"
-           f"checkpoints/model_000008000.pt}}")
+           f"checkpoints/model_{_it:09d}.pt}}")
     _e = _tabletop_short_post(_name, copy.deepcopy(_ds), _ck, model_override=_pv_model_override(0))
     _e["dataloader_train"]["batch_size"] = 12
     _e["trainer"]["max_iter"] = 8_000

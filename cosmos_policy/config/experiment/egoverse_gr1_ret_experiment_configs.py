@@ -729,6 +729,23 @@ for _tag in ("randref", "conf50", "rematch", "hawor_pairs", "hawor_full", "hawor
     _e["job"]["name"] = _n
     globals()[_n] = _e
 
+# 8-node variant of the v2r_align post (docs/egoverse_vid2robot_16node.md). NOT the v6 reference recipe: 64 GPUs
+# cannot hold global 96, so 8 x 8 x 2 = global 128 for 3K iterations (the same 384K samples). The schedule is the
+# reference one in samples: warmup 375, cycle 6K (step s here = step 4s/3 of ..._4node). Peak LR unchanged.
+# v2r_align16: the same post, warm-started from the 16-node mid (..._v2r_align_16node @ 4K).
+for _tag, _mid, _it in (("v2r_align", "v2r_align_4node", 8_000), ("v2r_align16", "v2r_align_16node", 4_000)):
+    _n = f"cosmos_predict2p5_2b_egoverse_gr1_ret_v6_448_state_{_tag}_8node"
+    _e = _copy_conf50.deepcopy(cosmos_predict2p5_2b_egoverse_gr1_ret_v6_448_state_randref_2node)
+    _e["checkpoint"]["load_path"] = (
+        f"${{oc.env:GR1_BASE_CKPT,/mnt/ddn/tmp/egoverse_ret_v3_448_state_{_mid}/cosmos_policy/"
+        f"cosmos_v2_finetune/cosmos_predict2p5_2b_egoverse_ret_v3_448_state_{_mid}/checkpoints/model_{_it:09d}.pt}}")
+    _e["trainer"]["max_iter"] = 3_000
+    _e["scheduler"]["cycle_lengths"] = [6_000, 100000000000000]
+    _e["scheduler"]["warm_up_steps"] = [375, 0]
+    _e["dataloader_train"]["batch_size"] = 2
+    _e["job"]["name"] = _n
+    globals()[_n] = _e
+
 # 2x-POOL post-train (2026-07-29): IDENTICAL to ..._v6_448_state, but the retrieval
 # demo pool is TEMPORALLY 2x-sped (dthdemo_*__2x / taskdemo_*__2x). Query/target are
 # unchanged 1x GR1 (abs_action57). Matching descriptor = no-velocity pos+rot+grip
@@ -1822,6 +1839,8 @@ ALL_EGOVERSE_GR1_RET_CONFIGS = [
     cosmos_predict2p5_2b_egoverse_gr1_ret_v6_448_state_hawor_full_4node,  # noqa: F821
     cosmos_predict2p5_2b_egoverse_gr1_ret_v6_448_state_hawor_full_md_4node,  # noqa: F821
     cosmos_predict2p5_2b_egoverse_gr1_ret_v6_448_state_v2r_align_4node,  # noqa: F821
+    cosmos_predict2p5_2b_egoverse_gr1_ret_v6_448_state_v2r_align_8node,  # noqa: F821
+    cosmos_predict2p5_2b_egoverse_gr1_ret_v6_448_state_v2r_align16_8node,  # noqa: F821
     cosmos_predict2p5_2b_egoverse_gr1_ret_v6_2x_448_state,
     cosmos_predict2p5_2b_egoverse_gr1_ret_v6_2x_448_state_base,
     cosmos_predict2p5_2b_egoverse_gr1_ret_v6_448_state_vidonly,

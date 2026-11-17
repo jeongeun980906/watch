@@ -6,8 +6,9 @@
 #      the other nodes wait for that file (never for a process pattern).
 #   2. every node runs its share on its 8 GPUs:
 #        gr1: the 37 L1-L3 atoms of gr1_local_eval.sh MODE=full, split by ATOM_SHARD=$NODE_RANK/$NNODES
-#        pv0: 10 tasks (EASY 5, OOD 4, full box_into_pot) x 50 trials, each task cut into 3 episode ranges
-#             (30 jobs; job j goes to node j % NNODES, one GPU per job), protocol of the rebuttal Tabletop tables
+#        pv0: 10 tasks (EASY 5, OOD 4, full box_into_pot) x 50 trials, each task cut into NNODES x GPUs / 10
+#             episode ranges (4 nodes: 3 -> 30 jobs, 8 nodes: 6 -> 60 jobs; job j goes to node j % NNODES, one GPU
+#             per job; per-episode seeding, so the split does not change results), protocol of the rebuttal Tabletop tables
 #             (seed 195, EXEC 16, guidance 1.5, 35 steps)
 #      and writes $EVAL_OUT/_markers/node<rank>.done.
 #   3. node 0 waits for every node and writes $EVAL_OUT/summary.txt.
@@ -15,7 +16,8 @@
 #   --check   only verify the eval environment (the launcher runs this before training, so a missing path
 #             fails in seconds, not after the post-train)
 #
-# Env (set by the launcher): STAGE (gr1|pv0), EXP, IMAGINAIRE_OUTPUT_ROOT, NODE_RANK, NNODES, NPROC_PER_NODE.
+# Env (set by the launcher): STAGE (gr1|pv0), EXP, IMAGINAIRE_OUTPUT_ROOT, NODE_RANK, NNODES, NPROC_PER_NODE
+#   (and EVAL_ITER=3000 for the 8-node GR1 post).
 # Env (eval):
 #   gr1: the variables of docs/gr1_eval_rebuttal_4node.md §1.4 (CLIENT_PY, FW, MIMICDROID_TASKDEMOS, POOL,
 #        PLAY_POOL, PAIRS_DIR, EGOVERSE_GR1_HUM_ROOT)
@@ -90,11 +92,15 @@ case "$STAGE" in
   pv0)
     TASKS_ALL=(aloha_dish_drainer aloha_handover_box aloha_shoes_table aloha_lift_box aloha_box_into_pot_easy
                aloha_dish_drainer_new aloha_handover_box_new aloha_shoes_table_new aloha_lift_box_new aloha_box_into_pot)
-    STARTS=(0 17 34); COUNTS=(17 17 16)                     # 50 trials = 3 episode ranges
+    NP=$(( NNODES * NG / ${#TASKS_ALL[@]} )); [ $NP -lt 1 ] && NP=1; [ $NP -gt 50 ] && NP=50
+    STARTS=(); COUNTS=(); st=0                              # 50 trials = NP episode ranges (4 nodes: 17/17/16)
+    for ((p = 0; p < NP; p++)); do
+      c=$(( 50 / NP + (p < 50 % NP ? 1 : 0) )); STARTS+=($st); COUNTS+=($c); st=$((st + c))
+    done
     jobs=()                                                 # "task start count" of this node
     j=0
     for t in "${TASKS_ALL[@]}"; do
-      for p in 0 1 2; do
+      for ((p = 0; p < NP; p++)); do
         [ $((j % NNODES)) = "$NODE_RANK" ] && jobs+=("$t ${STARTS[$p]} ${COUNTS[$p]}")
         j=$((j + 1))
       done

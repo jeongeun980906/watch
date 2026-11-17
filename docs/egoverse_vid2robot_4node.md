@@ -6,6 +6,9 @@ post-trainings and evals are the **standard** WATCH ones (GR1 v6 ICL, Tabletop p
 mid differs. Each post-train group runs its closed-loop eval on its own 4 nodes as soon as its training ends
 (`EVAL=1`). Every command is in this file, in order.
 
+For 16 nodes (a larger-batch variant of the mid and the GR1 post, so not this recipe), see
+[`egoverse_vid2robot_16node.md`](egoverse_vid2robot_16node.md).
+
 ## 0. Overview
 
 ### 0.1 The runs
