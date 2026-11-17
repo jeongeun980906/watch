@@ -713,12 +713,14 @@ for _tag, _mid, _it in (("conf50", "conf50_nomd_15k", 15_000), ("conf50_q50", "c
 # unchanged (cycle 8K, warmup 500) and the run stops at the reference's 4K read-out point (384K samples).
 # GR1_BASE_CKPT overrides the warm-start path.
 # rematch / hawor_pairs / hawor_full: the RGB-only-hand mids (docs/egoverse_hawor_rgb.md), same recipe.
-for _tag in ("randref", "conf50", "rematch", "hawor_pairs", "hawor_full"):
+# hawor_full_md: hawor_full with the MimicDroid play episodes (docs/egoverse_hawor_rgb_md.md); its mid has no _nomd.
+for _tag in ("randref", "conf50", "rematch", "hawor_pairs", "hawor_full", "hawor_full_md"):
     _n = f"cosmos_predict2p5_2b_egoverse_gr1_ret_v6_448_state_{_tag}_4node"
+    _mid = f"{_tag}_4node" if _tag.endswith("_md") else f"{_tag}_nomd_4node"
     _e = _copy_conf50.deepcopy(cosmos_predict2p5_2b_egoverse_gr1_ret_v6_448_state_randref_2node)
     _e["checkpoint"]["load_path"] = (
         f"${{oc.env:GR1_BASE_CKPT,/mnt/ddn/tmp/egoverse_ret_v3_448_state_{_tag}_4node/cosmos_policy/"
-        f"cosmos_v2_finetune/cosmos_predict2p5_2b_egoverse_ret_v3_448_state_{_tag}_nomd_4node/checkpoints/model_000008000.pt}}")
+        f"cosmos_v2_finetune/cosmos_predict2p5_2b_egoverse_ret_v3_448_state_{_mid}/checkpoints/model_000008000.pt}}")
     _e["trainer"]["max_iter"] = 4_000
     _e["scheduler"]["cycle_lengths"] = [8_000, 100000000000000]
     _e["dataloader_train"]["batch_size"] = 3
@@ -1816,6 +1818,7 @@ ALL_EGOVERSE_GR1_RET_CONFIGS = [
     cosmos_predict2p5_2b_egoverse_gr1_ret_v6_448_state_rematch_4node,  # noqa: F821
     cosmos_predict2p5_2b_egoverse_gr1_ret_v6_448_state_hawor_pairs_4node,  # noqa: F821
     cosmos_predict2p5_2b_egoverse_gr1_ret_v6_448_state_hawor_full_4node,  # noqa: F821
+    cosmos_predict2p5_2b_egoverse_gr1_ret_v6_448_state_hawor_full_md_4node,  # noqa: F821
     cosmos_predict2p5_2b_egoverse_gr1_ret_v6_2x_448_state,
     cosmos_predict2p5_2b_egoverse_gr1_ret_v6_2x_448_state_base,
     cosmos_predict2p5_2b_egoverse_gr1_ret_v6_448_state_vidonly,

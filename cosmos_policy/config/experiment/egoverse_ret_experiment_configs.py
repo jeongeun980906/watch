@@ -1431,6 +1431,17 @@ cosmos_predict2p5_2b_egoverse_ret_v3_448_state_hawor_pairs_nomd_4node = _hawor_4
 cosmos_predict2p5_2b_egoverse_ret_v3_448_state_hawor_full_nomd_4node = _hawor_4node(
     "cosmos_predict2p5_2b_egoverse_ret_v3_448_state_hawor_full_nomd_4node", "pairs_hawor.npz")
 
+# hawor_full_md: hawor_full WITH the 20 MimicDroid play episodes, i.e. the full WATCH query set
+# (docs/egoverse_hawor_rgb_md.md). MimicDroid video rebuilt from the MimicDroid release (HF
+# Jeongeun/egoverse-mimicdroid-play, hawor_rgb/build_md_play.py) and linked into the episode root;
+# its state/action is the simulator's (no HaWoR). pairs_hawor_md.npz = pairs_hawor.npz + the 16,195
+# MimicDroid query rows of the released pairs.npz verbatim (as 73b_v10.py brought them into v10);
+# query_eps_md.json = query_eps_nomd.json + the 20 MimicDroid episodes (finalize_manifest.py --md-from).
+cosmos_predict2p5_2b_egoverse_ret_v3_448_state_hawor_full_md_4node = _ret_448_experiment(
+    "cosmos_predict2p5_2b_egoverse_ret_v3_448_state_hawor_full_md_4node", EgoVerseRetV3StateDataset,
+    batch_size=2, base_kw=_HAWOR_KW, max_iter=_REB4_ITER, scheduler=_scaled_scheduler(_REB4_ITER),
+    pairs_name="pairs_hawor_md.npz", query_episode_set=f"{_HAWOR_MANIFEST}/query_eps_md.json")
+
 
 ALL_EGOVERSE_RET_CONFIGS = [
     cosmos_predict2p5_2b_egoverse_ret_v2,
@@ -1477,6 +1488,7 @@ ALL_EGOVERSE_RET_CONFIGS = [
     cosmos_predict2p5_2b_egoverse_ret_v3_448_state_rematch_nomd_4node,
     cosmos_predict2p5_2b_egoverse_ret_v3_448_state_hawor_pairs_nomd_4node,
     cosmos_predict2p5_2b_egoverse_ret_v3_448_state_hawor_full_nomd_4node,
+    cosmos_predict2p5_2b_egoverse_ret_v3_448_state_hawor_full_md_4node,
     cosmos_predict2p5_2b_egoverse_ret_v3_448_state_conf50_q50_nomd_8k,
     cosmos_predict2p5_2b_egoverse_ret_short_v11,
     cosmos_predict2p5_2b_egoverse_ret_short_state_v11,
