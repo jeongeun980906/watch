@@ -12,7 +12,8 @@
 #
 # Env: MANIFEST (the Tabletop manifest: T5 + action/state stats), SIM_PY (Tabletop-Sim-backup venv python),
 #      TABLETOP_RANDREF_DATA / TABLETOP_RANDREF_MANIFEST (read by the *_4node configs at import), START (first
-#      episode index; per-episode seeding makes resumes exact), EXEC (16 = the rebuttal tables), GUID, STEPS.
+#      episode index; per-episode seeding makes resumes exact), EXEC (16 = the rebuttal tables), GUID, STEPS,
+#      SERVER_PY (policy-server python, default ./.venv/bin/python).
 #
 # Throughput: ~50 s/episode (env.step is 130 ms, dominated by rendering 3 cameras) plus
 # ~12 inferences. 5 tasks x 50 trials is roughly 3.5 h on one GPU.
@@ -59,12 +60,18 @@ if [ -n "${EXEC}" ]; then client_flags+=(--exec-steps "${EXEC}"); fi
 if [ -n "${GUID}" ]; then server_flags+=(--guidance "${GUID}"); fi
 if [ -n "${STEPS}" ]; then server_flags+=(--num-steps "${STEPS}"); fi
 
+# Server python: the training venv as is (SERVER_PY, default ./.venv). `uv run --group ...` would re-sync that venv,
+# which other jobs on a shared filesystem may be using; it is only the fallback when there is no ./.venv.
+if [ -n "${SERVER_PY:-}" ] || [ -x .venv/bin/python ]; then
+  SERVER_CMD=("${SERVER_PY:-.venv/bin/python}")
+else
+  SERVER_CMD=(uv run --extra cu128 --group robocasa --python 3.10 python)
+fi
 # torch.distributed is initialised even for one process: RANK/WORLD_SIZE/MASTER_* are required.
 CUDA_VISIBLE_DEVICES="${GPU}" RANK=0 WORLD_SIZE=1 LOCAL_RANK=0 MASTER_ADDR=127.0.0.1 MASTER_PORT="${MPORT}" \
 PYTHONPATH=. HF_HOME=${HF_HOME:-/mnt/ddn/hf_cache} \
 TABLETOP_RANDREF_MANIFEST=${TABLETOP_RANDREF_MANIFEST:-${MANIFEST}} TABLETOP_RANDREF_DATA=${TABLETOP_RANDREF_DATA:-} \
-  uv run --extra cu128 --group robocasa --python 3.10 \
-  python -m cosmos_policy.scripts.tabletop_sim_eval_server \
+  "${SERVER_CMD[@]}" -m cosmos_policy.scripts.tabletop_sim_eval_server \
   --experiment "${EXP}" --checkpoint "${CKPT}" --manifest-dir "${MANIFEST}" --port "${PORT}" \
   ${server_flags[@]+"${server_flags[@]}"} > "${OUT}/server.log" 2>&1 &
 SERVER_PID=$!

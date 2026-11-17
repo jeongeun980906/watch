@@ -35,6 +35,9 @@
 #                        (randref | conf50 | rematch | hawor_pairs | hawor_full | hawor_full_md | v2r_align)
 #   MASTER_PORT (12341)  NNODES (4)  NPROC_PER_NODE (8)  WANDB_MODE (online)  PY (python)
 #   EXTRA_OVERRIDES      extra hydra overrides appended after the experiment (e.g. "trainer.max_iter=20")
+#   EVAL=1               gr1 / pv0: right after the post-train, run its closed-loop eval on the same nodes
+#                        (scripts/eval_after_post_4node.sh; its environment is checked BEFORE training starts)
+#   EVAL_ONLY=1          skip training, run only that eval (e.g. after an eval crash)
 set -euo pipefail
 
 STAGE=${STAGE:-randref}
@@ -117,6 +120,13 @@ esac
 
 cd "$(dirname "$0")/.."   # cosmos_policy repo root
 
+EVAL=${EVAL:-0}; EVAL_ONLY=${EVAL_ONLY:-0}
+[ "$EVAL_ONLY" = 1 ] && EVAL=1
+export STAGE EXP NODE_RANK NNODES NPROC_PER_NODE IMAGINAIRE_OUTPUT_ROOT
+if [ "$EVAL" = 1 ]; then
+  bash scripts/eval_after_post_4node.sh --check || exit 1
+fi
+
 ngpu=$(nvidia-smi -L | wc -l)
 [ "$ngpu" -ge "$NPROC_PER_NODE" ] || { echo "node has $ngpu GPUs < NPROC_PER_NODE=$NPROC_PER_NODE" >&2; exit 1; }
 gbatch=$((NNODES * NPROC_PER_NODE * BATCH_SIZE))
@@ -130,7 +140,7 @@ export IMAGINAIRE_OUTPUT_ROOT WANDB_MODE
 export HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}   # base ckpt + VAE must already be in the HF cache (from-scratch guide 5.3)
 
 # shellcheck disable=SC2086
-$PY -m torch.distributed.run \
+[ "$EVAL_ONLY" = 1 ] || $PY -m torch.distributed.run \
   --nnodes="$NNODES" --nproc_per_node="$NPROC_PER_NODE" --node_rank="$NODE_RANK" \
   --master_addr="$MASTER_ADDR" --master_port="$MASTER_PORT" \
   -m cosmos_policy.scripts.train --config=cosmos_policy/config/config.py -- \
@@ -138,3 +148,7 @@ $PY -m torch.distributed.run \
   dataloader_train.batch_size="$BATCH_SIZE" trainer.grad_accum_iter=1 \
   job.wandb_mode="$WANDB_MODE" \
   ${EXTRA_OVERRIDES:-} 2>&1 | tee -a "$LOG"
+
+if [ "$EVAL" = 1 ]; then
+  PY=$PY bash scripts/eval_after_post_4node.sh 2>&1 | tee -a "$IMAGINAIRE_OUTPUT_ROOT/pod_logs/${STAGE}_${MID}_eval_node${NODE_RANK}.log"
+fi

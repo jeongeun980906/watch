@@ -12,7 +12,8 @@
 #   MODE=cert  ...    # 4 seen tasks x 3 demos x 10 ep = 12 atoms  (quick certification)
 #   MODE=full  ...    # 12 tasks / 37 atoms x 10 ep              (baseline-comparable)
 #   GPUS="0 1" PORT0=8700 MPORT0=29600 ...
-#   SERVER_MOD=eval_gr1_server_v2r ...   # server module for a non-default layout (eval_gr1_server_actonly, ...)
+#   SERVER_MOD=eval_gr1_server_actonly ...   # server module for a non-default layout
+#   ATOM_SHARD=1/4 OUT=<dir>/shard1 ...      # this node's share of the atoms (multi-node eval)
 #
 # ⚠️ Two arms at once (e.g. q25 vs baseline) MUST get different PORT0 *and* MPORT0 —
 #    torch.distributed binds MASTER_PORT even for WORLD_SIZE=1, so a shared MPORT0 makes
@@ -115,11 +116,17 @@ for spec in "${TASKS_SPEC[@]}"; do
     echo "$task --demo-only demo_$d --episodes $EPISODES $flags" >> "$QF"
   done
 done
+# ATOM_SHARD=i/n: keep atoms i, i+n, i+2n, ... of the queue (0-based), so n nodes split one MODE between them, each
+# with its own OUT (scripts/eval_after_post_4node.sh merges the shards).
+if [ -n "${ATOM_SHARD:-}" ]; then
+  _si=${ATOM_SHARD%/*}; _sn=${ATOM_SHARD#*/}
+  awk -v i="$_si" -v n="$_sn" '(NR - 1) % n == i' "$QF" > "$QF.shard" && mv "$QF.shard" "$QF"
+fi
 [ -s "$QF" ] || { echo "ERROR: 큐가 비었다 — ONLY_TASKS='${ONLY_TASKS:-}' ONLY_DEMOS='${ONLY_DEMOS:-}' 가 MODE=$MODE 와 겹치지 않는다" >&2; exit 1; }
 echo "[eval] exp=$EXP"
 echo "[eval] server=${SERVER_MOD:-eval_gr1_server}"
 echo "[eval] ckpt=$CK"
-echo "[eval] mode=$MODE  atoms=$(wc -l < "$QF")  gpus='$GPUS'  out=$OUT"
+echo "[eval] mode=$MODE  atoms=$(wc -l < "$QF")${ATOM_SHARD:+ (shard $ATOM_SHARD)}  gpus='$GPUS'  out=$OUT"
 
 next_atom() { ( flock 9; line=$(head -n1 "$QF" 2>/dev/null); [ -n "$line" ] && sed -i '1d' "$QF"; echo "$line" ) 9>"$QF.lock"; }
 port_up()   { (exec 3<>/dev/tcp/127.0.0.1/"$1") 2>/dev/null && exec 3<&- && return 0; return 1; }
