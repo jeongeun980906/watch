@@ -1,9 +1,8 @@
-# HaWoR post-trains: GR1 + Tabletop eval on 4 nodes (after training)
+# HaWoR + MimicDroid post-trains (`hawor_full_md`): GR1 + Tabletop eval on 4 nodes (after training)
 
-For the HaWoR post-trains that were launched from [`egoverse_hawor_rgb.md`](egoverse_hawor_rgb.md) §6 (`hawor_full`)
-or [`egoverse_hawor_rgb_md.md`](egoverse_hawor_rgb_md.md) §5 (`hawor_full_md`) **without** `EVAL=1`. This replaces
-their eval sections (one-node GR1 eval, "send the pv0 checkpoint"): each finished post-train is evaluated on 4 nodes
-with `EVAL_ONLY=1` (no training; `scripts/eval_after_post_4node.sh`). The training commands of those guides are
+For the `hawor_full_md` post-trains launched from [`egoverse_hawor_rgb_md.md`](egoverse_hawor_rgb_md.md) §5
+**without** `EVAL=1`. This replaces its eval section §6 (one-node GR1 eval, "send the pv0 checkpoint"): each finished post-train is evaluated on 4 nodes
+with `EVAL_ONLY=1` (no training; `scripts/eval_after_post_4node.sh`). The training commands of that guide are
 unchanged.
 
 | post-train | eval at | eval | 4 nodes |
@@ -24,7 +23,7 @@ Both must be on the shared filesystem: every node runs eval workers.
 
 ## 2. Run
 
-On every node of the eval group (`NODE_RANK=0..3`), with the environment of the HaWoR guide (§0.3 / §0.1) and:
+On every node of the eval group (`NODE_RANK=0..3`), with the environment of `egoverse_hawor_rgb_md.md` §0.1 and:
 
 ```bash
 cd $WATCH && source .venv/bin/activate && export HF_HOME
@@ -33,11 +32,11 @@ export TABLETOP_RANDREF_DATA=$ROOT/tabletopsim-watch/data TABLETOP_RANDREF_MANIF
 export SIM_PY=$ROOT/Tabletop-Sim-backup/.venv/bin/python
 # + the GR1 eval variables of gr1_eval_rebuttal_4node.md §1.4 (CLIENT_PY, FW, MIMICDROID_TASKDEMOS, POOL, PLAY_POOL,
 #   PAIRS_DIR; EGOVERSE_GR1_HUM_ROOT is the one above)
-export M=hawor_full            # or hawor_full_md
+export M=hawor_full_md
 ```
 
 The launcher still checks the training inputs of the stage, so `$MIDPT` (the mid `.pt` the post-train started from)
-must be set as in the HaWoR guide.
+must be set as in `egoverse_hawor_rgb_md.md` §4.3.
 
 ```bash
 # GR1 L1-L3 (after the GR1 post-train has finished)
@@ -51,7 +50,7 @@ EVAL_ONLY=1 MASTER_ADDR=<node 0> TABLETOP_RANDREF_CKPT=$MIDPT \
 ```
 
 `IMAGINAIRE_OUTPUT_ROOT` must be the one the post-train used. Node 0 converts the final checkpoint to `.pt` (skipped
-if the guide's convert step already wrote it); the other nodes wait for it.
+if the convert step of `egoverse_hawor_rgb_md.md` §5 already wrote it); the other nodes wait for it.
 
 - First line: `[eval] gr1 eval environment OK` / `[eval] pv0 eval environment OK`, then `[eval] node <r>/4 ... ckpt
   .../model_000004000.pt` (GR1) / `model_000008000.pt` (pv0).
@@ -69,7 +68,7 @@ if the guide's convert step already wrote it); the other nodes wait for it.
 
 | check |
 |---|
-| GR1 `atoms 37/37`, no `ATOM FAILED`; `[eval] exp=` / `[eval] ckpt=` are the `${M}` ones |
+| GR1 `atoms 37/37`, no `ATOM FAILED`; `[eval] exp=` / `[eval] ckpt=` are the `hawor_full_md` ones |
 | Tabletop every task `/50` (no `INCOMPLETE`), no `job FAILED`; every Tabletop `server.log` prints `latent contract: PLAIN_END+PER_VIEW(nb=0) ... state_t=8` |
 
 **Send back:**
