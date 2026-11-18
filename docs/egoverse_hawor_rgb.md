@@ -2,8 +2,8 @@
 
 This guide replaces WATCH's tracked hand trajectories with hands estimated from the egocentric video alone
 ([HaWoR](https://github.com/ThunderVVV/HaWoR), CVPR 2025), rebuilds the pairs from them, mid-trains WATCH on
-them (one run), and post-trains that mid on GR1 v6 ICL and Tabletop pv0; each post-train is evaluated (GR1 L1-L3,
-Tabletop) on its own nodes right after it ends. Every command is in this file, in order.
+them (one run), and post-trains that mid on GR1 v6 ICL and Tabletop pv0, and
+evaluates GR1 (L1-L3). Every command is in this file, in order.
 
 **Starting point:** the cluster setup of the randref / conf50 4-node runs. The data, the training environment,
 the base checkpoint in the HF cache and the post-training data are already there and are reused unchanged.
@@ -28,7 +28,8 @@ run), the window table and task labels, and the normalization statistics of the 
 | 3. camera fit + `state57`/`action57` from HaWoR | 3 | 1 node, CPU | ~1 h |
 | 4. pairs from HaWoR | 4 | 1 node (CPU + 1 GPU for T5) | ~1.5 h |
 | 5. mid-training | 5 | one 4-node group | ~23 h |
-| 6. two post-trainings + their evals (GR1, Tabletop) | 6 | two 4-node groups at once | GR1 ~5 h + eval ~3 h; pv0 ~7 h + eval ~1 h |
+| 6. two post-trainings (GR1, pv0) | 6 | two 4-node groups at once | ~7 h |
+| 7. GR1 eval L1-L3; send the pv0 checkpoint | 7 | one 8-GPU node | ~6-7 h |
 
 HaWoR rate: 0.12 s per frame per worker, measured on one RTX 5090 (H100 assumed equal). EgoVerse (human sources of
 v10): 13,445 episodes, 32.4M frames ≈ 1,080 GPU-hours at one worker per GPU. Several workers per GPU (2.3) overlap the
@@ -285,65 +286,89 @@ ls -la $MIDPT      # ~3.9 GB
 
 ---
 
-## 6. Post-training + eval: GR1 v6 ICL and Tabletop pv0 (two 4-node groups at once)
+## 6. Post-training: GR1 v6 ICL and Tabletop pv0 (two 4-node groups at once)
 
-Same recipe as the randref/conf50 post-trains, warm-started from `$MIDPT` (§5.3). Each group runs its
-closed-loop eval on its own 4 nodes as soon as its training ends (`EVAL=1`, `scripts/eval_after_post_4node.sh`).
+Same recipe as the randref/conf50 post-trains, warm-started from `$MIDPT`.
 
-| post-train | experiment | 4 nodes | iterations | eval at |
+| post-train | experiment | 4 nodes | iterations | read at |
 |---|---|---|---|---|
-| GR1 v6 ICL | `cosmos_predict2p5_2b_egoverse_gr1_ret_v6_448_state_hawor_full_4node` | batch 3/GPU = global 96 | 4K on the 8K schedule | 4K: 37 L1-L3 atoms x 10 episodes, split over the 4 nodes |
-| Tabletop pv0 | `cosmos_predict2p5_2b_tabletop_sim_5task_plain_end_a20_pv0_hawor_full_4node` | batch 12/GPU = global 384 | 8K | 8K: 10 tasks x 50 trials (EASY 5, OOD 4, full `aloha_box_into_pot`), seed 195, `EXEC=16` |
-
-### 6.1 Eval setup (once, before the post-trains)
-
-The launcher checks the eval environment before training starts and stops within seconds if anything is missing.
-- GR1: [`egoverse_vid2robot_4node.md`](egoverse_vid2robot_4node.md) §1.2 (= [`gr1_eval_rebuttal_4node.md`](gr1_eval_rebuttal_4node.md) §1; reuse it if it is
-  already set up).
-- Tabletop-Sim: [`egoverse_vid2robot_4node.md`](egoverse_vid2robot_4node.md) §1.3 (`scripts/setup_tabletop_sim.sh`; reuse it if `$SIM_PY` exists).
-
-Both must be on the shared filesystem: every node of a group runs eval workers.
-
-### 6.2 Launch
+| GR1 v6 ICL | `cosmos_predict2p5_2b_egoverse_gr1_ret_v6_448_state_hawor_full_4node` | batch 3/GPU = global 96 | 4K on the 8K schedule | 4K |
+| Tabletop pv0 | `cosmos_predict2p5_2b_tabletop_sim_5task_plain_end_a20_pv0_hawor_full_4node` | batch 12/GPU = global 384 | 8K | 8K |
 
 ```bash
 cd $WATCH && source .venv/bin/activate && export HF_HOME WANDB_MODE=online
 export EGOVERSE_GR1_V6_MANIFEST=$ROOT/mimicdroid-gr1/manifest EGOVERSE_GR1_HUM_ROOT=$ROOT/mimicdroid-gr1/egoverse
 export TABLETOP_RANDREF_DATA=$ROOT/tabletopsim-watch/data TABLETOP_RANDREF_MANIFEST=$ROOT/tabletopsim-watch/manifest
-export SIM_PY=$ROOT/Tabletop-Sim-backup/.venv/bin/python
-# + the GR1 eval variables of gr1_eval_rebuttal_4node.md §1.4 (CLIENT_PY, FW, MIMICDROID_TASKDEMOS, POOL, PLAY_POOL,
-#   PAIRS_DIR; EGOVERSE_GR1_HUM_ROOT is the one above)
-# group A: GR1 v6 ICL -> GR1 L1-L3 eval
-EVAL=1 MASTER_ADDR=<A node 0> MASTER_PORT=12344 GR1_BASE_CKPT=$MIDPT \
+# group A: GR1 v6 ICL
+MASTER_ADDR=<A node 0> MASTER_PORT=12344 GR1_BASE_CKPT=$MIDPT \
   IMAGINAIRE_OUTPUT_ROOT=/shared/runs/gr1_posttrain_v6_448_state_hawor_full_4node \
   STAGE=gr1 MID=hawor_full NODE_RANK=<0..3> bash scripts/train_egoverse_rebuttal_4node.sh
-# group B: Tabletop pv0 -> Tabletop eval
-EVAL=1 MASTER_ADDR=<B node 0> MASTER_PORT=12345 TABLETOP_RANDREF_CKPT=$MIDPT \
+# group B: Tabletop pv0
+MASTER_ADDR=<B node 0> MASTER_PORT=12345 TABLETOP_RANDREF_CKPT=$MIDPT \
   IMAGINAIRE_OUTPUT_ROOT=/shared/runs/tabletop_pv0_hawor_full_4node \
   STAGE=pv0 MID=hawor_full NODE_RANK=<0..3> bash scripts/train_egoverse_rebuttal_4node.sh
 ```
 
-- First lines: `[eval] gr1 eval environment OK` / `[eval] pv0 eval environment OK`, then training. The log prints the
-  experiment and the checkpoint it loads; check that it is `$MIDPT`.
-- After training, node 0 converts the final checkpoint to `.pt` (the others wait for it), then every node runs its
-  share: `[eval] node <r>/4 ...`. Logs:
-  - `$IMAGINAIRE_OUTPUT_ROOT/pod_logs/<stage>_hawor_full_eval_node<r>.log`
-  - GR1: `$IMAGINAIRE_OUTPUT_ROOT/eval/shard<r>/` (as `gr1_local_eval.sh`)
-  - Tabletop: `$IMAGINAIRE_OUTPUT_ROOT/eval/<task>/ep<start>/` (as `tabletop_sim_eval.sh`)
-- Node 0 ends with the merged `$IMAGINAIRE_OUTPUT_ROOT/eval/summary.txt`:
-  - GR1: one line per atom, `atoms 37/37`, `TOTAL s/n`
-  - Tabletop: per task `s/50`, EASY / OOD / FULL totals
-- **Eval only** (e.g. after an eval crash; training is skipped, the existing checkpoint is reused): the same command
-  with `EVAL_ONLY=1` instead of `EVAL=1`. To redo single GR1 atoms or Tabletop jobs, run them by hand as in
-  [`gr1_eval_rebuttal_4node.md`](gr1_eval_rebuttal_4node.md) §2.2 / `tabletop_sim_eval.sh` (`TASKS`, `START`, `TRIALS`).
+The log prints the experiment and the checkpoint it loads; check that it is `$MIDPT`.
 
-**Send back:**
-- `/shared/runs/gr1_posttrain_v6_448_state_hawor_full_4node/eval/` (`summary.txt`, `shard*/logs/`, `shard*.log`)
-- `/shared/runs/tabletop_pv0_hawor_full_4node/eval/` (`summary.txt`, `*/ep*/results.json`, `*/ep*/config.txt`, `*_ep*.log`)
+Convert for evaluation:
+
+```bash
+IMAGINAIRE_OUTPUT_ROOT=/shared/runs/gr1_posttrain_v6_448_state_hawor_full_4node \
+  python convert_dcp_to_pt.py --tag cosmos_predict2p5_2b_egoverse_gr1_ret_v6_448_state_hawor_full_4node --iter 4000
+IMAGINAIRE_OUTPUT_ROOT=/shared/runs/tabletop_pv0_hawor_full_4node \
+  python convert_dcp_to_pt.py --tag cosmos_predict2p5_2b_tabletop_sim_5task_plain_end_a20_pv0_hawor_full_4node --iter 8000
+```
 
 ---
 
-## 7. What to check
+## 7. Evaluation
+
+### 7.1 GR1 v6 ICL: closed-loop eval, L1-L3 (one 8-GPU node)
+
+Setup is [`gr1_eval_rebuttal_4node.md`](gr1_eval_rebuttal_4node.md) §1 unchanged (repos, robocasa venv, data,
+environment variables of §1.4). If it was already set up for the randref eval, reuse it as is. Then, instead of the
+randref checkpoint:
+
+```bash
+export HAWOR_CK=/shared/runs/gr1_posttrain_v6_448_state_hawor_full_4node/cosmos_policy/cosmos_v2_finetune/cosmos_predict2p5_2b_egoverse_gr1_ret_v6_448_state_hawor_full_4node/checkpoints/model_000004000.pt
+export HAWOR_EXP=cosmos_predict2p5_2b_egoverse_gr1_ret_v6_448_state_hawor_full_4node
+export RES=$ROOT/gr1_hawor_eval && mkdir -p $RES
+```
+
+Smoke test (one episode, ~5 min), same pass criteria as §1.5 of the eval guide; delete `$RES/smoke` afterwards:
+
+```bash
+CK=$HAWOR_CK EXP=$HAWOR_EXP OUT=$RES/smoke MODE=full EPISODES=1 \
+ONLY_TASKS="PnPSinkToCabinetL2" ONLY_DEMOS="1" GPUS="0" ./gr1_local_eval.sh
+```
+
+Launch all L1-L3 atoms (`MODE=full`: 12 seen-task atoms + 25 L2/L3 atoms = 37 atoms, 10 episodes each):
+
+```bash
+CK=$HAWOR_CK EXP=$HAWOR_EXP OUT=$RES/gr1_v6_hawor_full_4node_4000_full MODE=full \
+GPUS="0 1 2 3 4 5 6 7" PORT0=8700 MPORT0=29600 \
+  nohup ./gr1_local_eval.sh > $RES/hawor_full.log 2>&1 &
+```
+
+Rough time: ~6-7 h on 8 GPUs. A failed atom (`ATOM FAILED`) is re-run as in §2.2 of the eval guide.
+
+**Check:** the run log prints `[eval] mode=full  atoms=37`, `[eval] exp=` / `[eval] ckpt=` are the HaWoR ones, and
+§3 of the eval guide (f3r2 spawn, Close\* at `x/10`, no `SERVER DIED`).
+
+**Send back:** `summary.txt` and `logs/` from `$RES/gr1_v6_hawor_full_4node_4000_full`, and `$RES/hawor_full.log`.
+
+### 7.2 Tabletop pv0: send the checkpoint
+
+The pv0 checkpoint is evaluated locally. Send the 8K `.pt` (~3.9 GB):
+
+```
+/shared/runs/tabletop_pv0_hawor_full_4node/cosmos_policy/cosmos_v2_finetune/cosmos_predict2p5_2b_tabletop_sim_5task_plain_end_a20_pv0_hawor_full_4node/checkpoints/model_000008000.pt
+```
+
+---
+
+## 8. What to check
 
 | after | check |
 |---|---|
@@ -355,7 +380,6 @@ EVAL=1 MASTER_ADDR=<B node 0> MASTER_PORT=12345 TABLETOP_RANDREF_CKPT=$MIDPT \
 | 5 | dataset lines: `query_episode_set=query_eps_nomd.json: kept 13295/...`, `ROBUST state norm ... state57_stats_staterobust.json`; episodes read from `$EGOVERSE_HAWOR_ROOT` (first launcher lines) |
 | 5, 6 | LR: mid warmup 500 to 1e-4, 0.894e-4 at 8K; GR1 0.673e-4 at 4K; pv0 warmup 200, 0.5e-4 at 8K. Loss finite, iteration time stable |
 | 6 | post-trains load the mid `.pt` with no missing or unexpected keys |
-| 6 (eval) | GR1 `atoms 37/37`, no `ATOM FAILED`; Tabletop every task `/50` (no `INCOMPLETE`), no `job FAILED`; every Tabletop `server.log` prints `latent contract: PLAIN_END+PER_VIEW(nb=0) ... state_t=8` |
 
 ## Files
 
@@ -375,6 +399,3 @@ EVAL=1 MASTER_ADDR=<B node 0> MASTER_PORT=12345 TABLETOP_RANDREF_CKPT=$MIDPT \
 | `cosmos_policy/config/experiment/egoverse_ret_experiment_configs.py` | the mid experiment (`hawor_full`; `rematch` / `hawor_pairs` are defined but not run) |
 | `cosmos_policy/config/experiment/egoverse_gr1_ret_experiment_configs.py`, `tabletop_sim_experiment_configs.py` | GR1 / pv0 post-trains for `MID=hawor_full` |
 | `scripts/train_egoverse_rebuttal_4node.sh` | `STAGE=hawor_full` (mid), `STAGE=gr1 / pv0` with `MID=hawor_full` |
-| `scripts/train_egoverse_rebuttal_4node.sh` | `STAGE=hawor_full`; `STAGE=gr1 / pv0` with `MID=hawor_full`; `EVAL=1`, `EVAL_ONLY=1` |
-| `scripts/eval_after_post_4node.sh` | `EVAL=1`: convert, 4-node eval split, merge |
-| `gr1_local_eval.sh` (`ATOM_SHARD`), `tabletop_sim_eval.sh`, `scripts/setup_tabletop_sim.sh` | the evals; Tabletop-Sim client from GitHub |
